@@ -1,11 +1,11 @@
 {
-  "name": "coding-agent",
-  "version": "0.1.0",
-  "description": "自建 Coding Agent — Phase 1",
+  "name": "rubato",
+  "version": "0.2.0",
+  "description": "Rubato — a coding agent with memory, intention tracking, and personal knowledge journal",
   "type": "module",
   "main": "dist/cli/entry.js",
   "bin": {
-    "coding-agent": "dist/cli/entry.js"
+    "rubato": "dist/cli/entry.js"
   },
   "scripts": {
     "build": "tsc",

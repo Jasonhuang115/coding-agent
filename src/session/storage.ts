@@ -11,7 +11,7 @@ export class SessionStore {
   private records: SessionRecord[] = [];
 
   constructor(sessionId: string, baseDir?: string) {
-    this.dir = baseDir ?? path.join(process.env.HOME ?? "/tmp", ".coding-agent", "sessions");
+    this.dir = baseDir ?? path.join(process.env.HOME ?? "/tmp", ".rubato", "sessions");
     this.filePath = path.join(this.dir, `${sessionId}.jsonl`);
   }
 
@@ -79,7 +79,7 @@ export class SessionStore {
 // ---- Session loader (reads back JSONL) ----
 
 export function loadSession(sessionId: string, baseDir?: string): SessionRecord[] {
-  const dir = baseDir ?? path.join(process.env.HOME ?? "/tmp", ".coding-agent", "sessions");
+  const dir = baseDir ?? path.join(process.env.HOME ?? "/tmp", ".rubato", "sessions");
   const filePath = path.join(dir, `${sessionId}.jsonl`);
 
   if (!fs.existsSync(filePath)) return [];
@@ -101,7 +101,7 @@ export function loadSession(sessionId: string, baseDir?: string): SessionRecord[
 }
 
 export function listSessions(baseDir?: string): string[] {
-  const dir = baseDir ?? path.join(process.env.HOME ?? "/tmp", ".coding-agent", "sessions");
+  const dir = baseDir ?? path.join(process.env.HOME ?? "/tmp", ".rubato", "sessions");
   if (!fs.existsSync(dir)) return [];
 
   return fs

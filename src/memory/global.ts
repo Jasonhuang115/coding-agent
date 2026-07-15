@@ -1,6 +1,6 @@
 // Global Memory — cross-project knowledge graph
 // Stores user preferences, common patterns, and lessons learned
-// Path: ~/.coding-agent/global/memory.db
+// Path: ~/.rubato/global/memory.db
 
 import { MnemosyneStore } from "./store.js";
 import path from "path";
@@ -10,7 +10,7 @@ let globalStore: MnemosyneStore | null = null;
 export function getGlobalStore(): MnemosyneStore {
   if (!globalStore) {
     const dir = process.env.HOME ?? "/tmp";
-    const dbPath = path.join(dir, ".coding-agent", "global", "memory.db");
+    const dbPath = path.join(dir, ".rubato", "global", "memory.db");
     globalStore = new MnemosyneStore(dbPath);
   }
   return globalStore;

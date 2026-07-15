@@ -444,5 +444,5 @@ export function closeMnemosyneStore(): void {
 
 function getDefaultDBPath(): string {
   const dir = process.env.HOME ?? "/tmp";
-  return path.join(dir, ".coding-agent", "mnemosyne", "memory.db");
+  return path.join(dir, ".rubato", "mnemosyne", "memory.db");
 }

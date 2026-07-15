@@ -58,7 +58,7 @@ export const webFetchTool: ToolDefinition = {
       const response = await fetch(fetchUrl, {
         signal: controller.signal,
         headers: {
-          "User-Agent": "coding-agent/0.1 (web-fetch)",
+          "User-Agent": "rubato/0.2 (web-fetch)",
           Accept: "text/html, text/plain, application/xhtml+xml, */*",
         },
         redirect: "follow",

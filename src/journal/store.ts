@@ -1,5 +1,5 @@
 // Personal Tech Journal — SQLite-backed knowledge base
-// Path: ~/.coding-agent/journal/journal.db
+// Path: ~/.rubato/journal/journal.db
 // Stores: id, title, content, tags, source_session, created_at
 
 import Database from "better-sqlite3";
@@ -362,5 +362,5 @@ export function closeJournalStore(): void {
 
 function getDefaultPath(): string {
   const dir = process.env.HOME ?? "/tmp";
-  return path.join(dir, ".coding-agent", "journal", "journal.db");
+  return path.join(dir, ".rubato", "journal", "journal.db");
 }

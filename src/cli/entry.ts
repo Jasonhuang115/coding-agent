@@ -123,12 +123,12 @@ function getStdinPrompt(): string {
 
 function printHelp(): void {
   console.log(`
-coding-agent — A custom coding agent built from scratch
+rubato — elastic tempo for your code
 
 Usage:
-  coding-agent [options] [prompt]  Interactive by default (REPL after answer)
-  coding-agent -n [prompt]         One-shot: answer and exit
-  echo "your prompt" | coding-agent -n [options]
+  rubato [options] [prompt]       Interactive by default (REPL after answer)
+  rubato -n [prompt]              One-shot: answer and exit
+  echo "your prompt" | rubato -n [options]
 
 Options:
   -d, --dir <path>    Working directory (default: current directory)
@@ -138,7 +138,7 @@ Options:
   -h, --help          Show this help
 
 API Keys:
-  Set API keys in .env, .env.local (working dir or ~/.coding-agent/).
+  Set API keys in .env, .env.local (working dir or ~/.rubato/).
   Shell environment variables override .env files.
   Supported: DEEPSEEK_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY
 
@@ -148,7 +148,7 @@ REPL Commands:
   Ctrl+C               Exit
 
 Config:
-  Place .coding-agent.yml in your project root or ~/.coding-agent/config.yml
+  Place .rubato.yml in your project root or ~/.rubato/config.yml
 `);
 }
 
@@ -267,7 +267,7 @@ async function handleMemoryCommand(input: string): Promise<void> {
     if (args[0] === "stats" || args.length === 0) {
       console.log(`\n  🧠 Mnemosyne 记忆图谱：`);
       console.log(`  实体：${stats.entities} | 关系：${stats.relations} | 访问记录：${stats.accessLogs}`);
-      console.log(`  存储路径：~/.coding-agent/mnemosyne/memory.db`);
+      console.log(`  存储路径：~/.rubato/mnemosyne/memory.db`);
       return;
     }
 
@@ -440,7 +440,7 @@ async function main(): Promise<void> {
 
   const renderer = new AnsiStreamRenderer();
 
-  console.log(`coding-agent v0.1.0`);
+  console.log(`rubato v0.2.0`);
   console.log(`Provider: ${config.model.provider} | Model: ${config.model.model}`);
   console.log(`Working dir: ${workdir}`);
   console.log(`Tools: ${getAllTools().length} registered`);

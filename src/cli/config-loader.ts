@@ -7,10 +7,10 @@ import type { AgentConfig } from "../core-types.js";
 import { DEFAULT_PERMISSIONS } from "../permissions/config.js";
 
 const CONFIG_FILE_NAMES = [
-  ".coding-agent.yml",
-  ".coding-agent.yaml",
-  "coding-agent.yml",
-  "coding-agent.yaml",
+  ".rubato.yml",
+  ".rubato.yaml",
+  "rubato.yml",
+  "rubato.yaml",
 ];
 
 // ---- .env file loading ----
@@ -32,7 +32,7 @@ export function loadEnvFiles(workingDir: string): void {
   // Home directory .env
   const home = process.env.HOME ?? "/tmp";
   for (const name of ENV_FILE_NAMES) {
-    paths.push(path.join(home, ".coding-agent", name));
+    paths.push(path.join(home, ".rubato", name));
   }
 
   for (const filePath of paths) {
@@ -106,7 +106,7 @@ export function loadConfig(workingDir: string): AgentConfig {
   // Also check home directory
   const homeConfigPath = path.join(
     process.env.HOME ?? "/tmp",
-    ".coding-agent",
+    ".rubato",
     "config.yml"
   );
   if (fs.existsSync(homeConfigPath)) {

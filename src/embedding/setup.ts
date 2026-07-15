@@ -6,7 +6,7 @@ import path from "path";
 
 const MODEL_DIR = path.join(
   process.env.HOME ?? "/tmp",
-  ".coding-agent",
+  ".rubato",
   "models"
 );
 
@@ -76,6 +76,6 @@ CREATE INDEX IF NOT EXISTS idx_memory_edges_target ON memory_edges(target_id);
 `;
 
 export function getMemoryDBPath(): string {
-  const dir = path.join(process.env.HOME ?? "/tmp", ".coding-agent");
+  const dir = path.join(process.env.HOME ?? "/tmp", ".rubato");
   return path.join(dir, "mnemosyne.db");
 }

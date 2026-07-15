@@ -20,6 +20,7 @@ import { ContextChain } from "../context/sources.js";
 import { ClaudeMdSource } from "../context/claude-md.js";
 import { MemoryMdSource } from "../context/memory-md.js";
 import { GitStatusSource } from "../context/git-status.js";
+import { SoulSource } from "../context/soul.js";
 import { MnemosyneSource } from "../context/mnemosyne-source.js";
 import { buildSystemPrompt } from "../context/system-prompt.js";
 import { microCompact } from "../context/compression.js";
@@ -96,6 +97,7 @@ export async function* agentLoop(
 
   // Build context chain
   const contextChain = new ContextChain();
+  contextChain.register(new SoulSource());
   contextChain.register(new ClaudeMdSource());
   contextChain.register(new MemoryMdSource());
   contextChain.register(new MnemosyneSource());

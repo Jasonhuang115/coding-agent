@@ -1,17 +1,14 @@
 // Journal Extractor — auto-detects valuable knowledge in conversations
-// Watches for signal phrases: "原来如此", "这个 bug 是因为", "解决方案是", etc.
-// Extracts structured entries for the Personal Tech Journal
+// Phase 2: Extracts to unified Mnemosyne entities table
 
 import type { Message } from "../core-types.js";
-import type { JournalStore } from "./store.js";
-import { getJournalStore } from "./store.js";
-import type { JournalEntry } from "./store.js";
+import { getMnemosyneStore } from "../memory/store.js";
 
 // ---- Signal detection ----
 
 interface ExtractionSignal {
   phrase: string;
-  type: JournalEntry["type"];
+  type: "tip" | "fix" | "concept" | "snippet" | "resource" | "note";
   /** How many messages around the signal to include as context */
   contextWindow: number;
 }
@@ -47,7 +44,7 @@ export interface ExtractedKnowledge {
   title: string;
   content: string;
   tags: string[];
-  type: JournalEntry["type"];
+  type: "tip" | "fix" | "concept" | "snippet" | "resource" | "note";
   /** Excerpt from conversation that triggered extraction */
   sourceQuote: string;
   confidence: number;
@@ -220,46 +217,30 @@ export function persistKnowledge(
   projectPath: string
 ): { saved: number } {
   const extracted = extractKnowledge(messages, sessionId, projectPath);
-
   if (extracted.length === 0) return { saved: 0 };
 
-  const store = getJournalStore();
+  const store = getMnemosyneStore();
   let saved = 0;
 
   for (const knowledge of extracted) {
     try {
-      store.addEntry({
-        title: knowledge.title,
-        content: knowledge.content,
-        tags: knowledge.tags,
-        sourceSession: sessionId,
-        projectPath,
-        type: knowledge.type,
-      });
+      store.upsertEntity(knowledge.title, mapType(knowledge.type), knowledge.content, sessionId, knowledge.confidence, "auto", 0);
       saved++;
     } catch {
       // skip duplicates or db errors
     }
   }
-
   return { saved };
 }
 
+function mapType(t: string): "note" | "error" | "concept" | "config" {
+  if (t === "fix") return "error";
+  if (t === "concept") return "concept";
+  if (t === "tip") return "config";
+  return "note";
+}
+
 /** Manual save: "/remember [title]" */
-export function manualRemember(
-  title: string,
-  content: string,
-  tags: string[],
-  sessionId: string,
-  projectPath: string
-): number {
-  const store = getJournalStore();
-  return store.addEntry({
-    title,
-    content,
-    tags,
-    sourceSession: sessionId,
-    projectPath,
-    type: "note",
-  });
+export function manualRemember(title: string, content: string, tags: string[], sessionId: string, _projectPath: string): number {
+  return getMnemosyneStore().addManualMemory(title, content, tags, sessionId, "note");
 }

@@ -24,6 +24,8 @@ import { agentTool } from "../tools/agent.js";
 import { PlanManager } from "../plan/manager.js";
 import { getJournalStore } from "../journal/store.js";
 import { getMnemosyneStore } from "../memory/store.js";
+import { initCustomDefinitions } from "../agent/agent-defs.js";
+import { initEmbeddings } from "../embedding/generate.js";
 import { getGitState, getCurrentBranch } from "../git/advisor.js";
 import { getBranchHealth } from "../git/branch-health.js";
 
@@ -436,6 +438,11 @@ async function main(): Promise<void> {
       console.log(`📓 已将 ${migrated} 条旧知识迁移到统一记忆图谱。`);
     }
   } catch { /* Migration is best-effort */ }
+
+  // Initialize custom agent definitions
+  try { initCustomDefinitions(workdir); } catch { /* optional */ }
+  // Initialize embedding infrastructure (lazy download)
+  initEmbeddings().catch(() => {});
 
   // Load and display active plan
   const planManager = new PlanManager(workdir);

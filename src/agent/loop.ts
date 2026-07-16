@@ -372,14 +372,27 @@ export async function* agentLoop(
   }
 
   // ---- Finalize ----
-  // Extract knowledge from this session into the journal (background, don't block)
+  // Extract knowledge into Mnemosyne (not old Journal)
   try {
     const extracted = persistKnowledge(messages, sessionId, workingDir);
     if (extracted.saved > 0) {
-      yield { type: "warning", message: `📓 从本次对话中提取了 ${extracted.saved} 条知识到 Personal Tech Journal。` };
+      yield { type: "warning", message: `🧠 从本次对话中提取了 ${extracted.saved} 条知识到 Mnemosyne 记忆图谱。` };
     }
   } catch {
-    // Journal extraction is best-effort
+    // Best-effort
+  }
+
+  // Trigger Consolidator if conditions are met
+  try {
+    const { shouldConsolidate, consolidateMemories } = await import("../memory/consolidator.js");
+    if (shouldConsolidate()) {
+      const result = await consolidateMemories();
+      if (result.merged > 0 || result.abstracted > 0 || result.deleted > 0) {
+        yield { type: "warning", message: `🧹 Mnemosyne 后台整理完成：合并 ${result.merged} | 抽象 ${result.abstracted} | 清理 ${result.deleted} | 降级 ${result.deprecated}` };
+      }
+    }
+  } catch {
+    // Best-effort
   }
 
   sessionMeta = finalizeSessionMeta(sessionMeta);

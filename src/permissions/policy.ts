@@ -5,7 +5,7 @@ import type {
   PermissionResult,
   AgentConfig,
 } from "../core-types.js";
-import { HARD_BLACKLIST } from "./config.js";
+import { HARD_BLACKLIST, DEFAULT_ALLOW_RULES } from "./config.js";
 import type { PermissionRule } from "./config.js";
 
 export class PolicyEngine implements PermissionManager {
@@ -99,14 +99,18 @@ export class PolicyEngine implements PermissionManager {
     toolName: string,
     input: Record<string, unknown>
   ): PermissionResult | null {
-    if (!this.config.rules) return null;
+    // Use merged rules: user rules first (can override defaults), then defaults
+    const allRules = [
+      ...(this.config.rules ?? []),
+      ...DEFAULT_ALLOW_RULES,
+    ];
 
     const command =
       (input.command as string) ??
       (input.file_path as string) ??
       JSON.stringify(input);
 
-    for (const rule of this.config.rules) {
+    for (const rule of allRules) {
       if (rule.tool !== toolName && rule.tool !== "*") continue;
 
       // Simple substring match (Phase 1), Phase 2 adds regex support
@@ -114,9 +118,12 @@ export class PolicyEngine implements PermissionManager {
         if (rule.action === "deny") {
           return {
             allowed: false,
-            reason: `Blocked by custom rule: "${rule.pattern}"`,
+            reason: `Blocked by rule: "${rule.pattern}"${rule.reason ? ` — ${rule.reason}` : ""}`,
             mode: "manual",
           };
+        }
+        if (rule.action === "allow") {
+          return { allowed: true };
         }
       }
     }

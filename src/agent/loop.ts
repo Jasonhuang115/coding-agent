@@ -15,6 +15,7 @@ import type {
   StreamEvent,
   StreamRenderer,
   ToolDefinition,
+  ConfirmDecision,
 } from "../core-types.js";
 import { createProvider } from "../model/router.js";
 import { getAllTools, dispatch, getReadTools, getWriteTools } from "../tools/registry.js";
@@ -25,7 +26,8 @@ import { GitStatusSource } from "../context/git-status.js";
 import { SoulSource } from "../context/soul.js";
 import { MnemosyneSource } from "../context/mnemosyne-source.js";
 import { buildSystemPrompt } from "../context/system-prompt.js";
-import { microCompact } from "../context/compression.js";
+import { microCompact, compactViaSubagent } from "../context/compression.js";
+import { microCompactBeforeRequest } from "../context/micro-compact.js";
 import { PolicyEngine } from "../permissions/policy.js";
 import { ReadGuard } from "./read-guard.js";
 import { SessionStore } from "../session/storage.js";
@@ -38,13 +40,14 @@ import { persistKnowledge } from "../journal/extractor.js";
 
 const DEFAULT_MAX_TURNS = 100;
 const DEFAULT_MAX_TOKENS = 16_384;
-const COMPACT_THRESHOLD_MESSAGES = 200; // safety net for many tiny messages; real trigger is token-based
 const OFFLOAD_THRESHOLD = 30_000; // >30KB → disk offload (matching Claude Code); below stays inline
-const APPROX_TOKEN_LIMIT = 800_000;   // trigger compaction well before provider's 1M limit
+const AUTOCOMPACT_BUFFER = 20_000; // reserve for output tokens + system prompt overhead
+const COMPACT_KEEP_RECENT = 120;   // messages to retain after compaction
 const RETRY_MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 1000;
 const CIRCUIT_BREAKER_THRESHOLD = 5;
 const CIRCUIT_BREAKER_WINDOW_MS = 60_000;
+const MAX_COMPACTION_FAILURES = 3; // consecutive failures before disabling auto-compaction
 
 // ---- Agent events ----
 
@@ -78,6 +81,15 @@ export interface AgentLoopOptions {
   getNextUserMessage?: () => Promise<string | null>;
   /** Set to true to force compaction on next turn (for /compact command) */
   forceCompaction?: boolean;
+  /** Set to true to skip auto-compaction (recursion guard for compact subagent) */
+  skipCompaction?: boolean;
+  /** Interactive confirmation callback. Called when a tool in "confirm" mode
+   *  is about to execute. If not provided, confirm-mode tools are auto-approved
+   *  with a warning (current behavior). */
+  onConfirmTool?: (
+    toolName: string,
+    input: Record<string, unknown>,
+  ) => Promise<ConfirmDecision>;
 }
 
 export async function* agentLoop(
@@ -134,12 +146,16 @@ export async function* agentLoop(
     (contextText ? `\n\n## Project Context\n${contextText}` : "") +
     (journalRecall ? `\n\n${journalRecall}` : "");
 
+  // System prompt tokens — counted once since it's sent on every API call
+  const systemTokens = roughTokenEstimate(systemPrompt);
+
   const messages: Message[] = [
     { role: "user", content: prompt },
   ];
 
   // ---- Error tracking ----
   let consecutiveErrors = 0;
+  let consecutiveCompactionFailures = 0;
   const errorTimestamps: number[] = [];
 
   // ---- Main turn loop ----
@@ -152,19 +168,74 @@ export async function* agentLoop(
 
     yield { type: "turn_start", turn: turn + 1 };
 
-    // Compress if too many messages OR approaching token limit OR user requested /compact
-    const approxTokens = estimateTokens(messages);
-    const forceCompact = options.forceCompaction;
-    if (forceCompact || messages.length > COMPACT_THRESHOLD_MESSAGES || approxTokens > APPROX_TOKEN_LIMIT) {
-      if (forceCompact) options.forceCompaction = false; // reset
-      const reason = forceCompact
-        ? "User requested compaction"
-        : `Messages: ${messages.length}, ~${Math.round(approxTokens / 1000)}K tokens`;
-      yield { type: "compacting", reason };
-      const compacted = microCompact(messages, Math.floor(COMPACT_THRESHOLD_MESSAGES * 0.6));
-      messages.length = 0;
-      messages.push(...compacted);
-      sessionStore.writeCompaction({ turn, messageCount: messages.length });
+    // Compaction check: token-based with dynamic threshold per model.
+    // System prompt tokens are included since they're sent on every API call.
+    // Skip if recursion guard is set (compact subagent should not compact).
+    if (!options.skipCompaction) {
+      const approxTokens = estimateMessageTokens(messages) + systemTokens;
+      const threshold = getAutoCompactThreshold(config.model.model);
+      const forceCompact = options.forceCompaction;
+      if (forceCompact || approxTokens > threshold) {
+        if (forceCompact) options.forceCompaction = false; // reset
+        const reason = forceCompact
+          ? "User requested compaction"
+          : `~${Math.round(approxTokens / 1000)}K / ${Math.round(threshold / 1000)}K tokens (${config.model.model})`;
+        yield { type: "compacting", reason };
+
+        try {
+          const compacted = await compactViaSubagent(messages, ctx, config, COMPACT_KEEP_RECENT);
+          messages.length = 0;
+          messages.push(...compacted);
+
+          // Post-compact restoration: inject recently accessed files so the
+          // model doesn't need to re-Read them after compaction.
+          const snapshot = readGuard.serialize();
+          const recentFiles = Object.entries(snapshot.files)
+            .sort(([, a], [, b]) => b.timestamp - a.timestamp)
+            .slice(0, 3)
+            .map(([fp]) => fp);
+          if (recentFiles.length > 0) {
+            messages.push({
+              role: "user",
+              content: `[Recently accessed files after compaction: ${recentFiles.join(", ")}. You may want to re-read these if you need their current content.]`,
+            });
+          }
+
+          consecutiveCompactionFailures = 0;
+          sessionStore.writeCompaction({ turn, messageCount: messages.length });
+        } catch {
+          // Compaction circuit breaker: track consecutive failures
+          consecutiveCompactionFailures++;
+          if (consecutiveCompactionFailures >= MAX_COMPACTION_FAILURES) {
+            yield {
+              type: "warning",
+              message: `Compaction failed ${consecutiveCompactionFailures} times — disabling auto-compaction for this session.`,
+            };
+            options.skipCompaction = true;
+          } else {
+            yield {
+              type: "warning",
+              message: `Compaction failed (${consecutiveCompactionFailures}/${MAX_COMPACTION_FAILURES}) — falling back to string-based microCompact.`,
+            };
+            const compacted = microCompact(messages, COMPACT_KEEP_RECENT);
+            messages.length = 0;
+            messages.push(...compacted);
+            sessionStore.writeCompaction({ turn, messageCount: messages.length });
+          }
+        }
+      }
+    }
+
+    // Micro-compact: clear stale tool results before the API request.
+    // Lightweight, no LLM cost — only fires when the gap since last
+    // assistant message exceeds the cache-TTL threshold.
+    {
+      const mcResult = microCompactBeforeRequest(messages);
+      if (mcResult.cleared > 0) {
+        messages.length = 0;
+        messages.push(...mcResult.messages);
+        yield { type: "warning", message: `Micro-compact: cleared ${mcResult.cleared} stale tool result(s)` };
+      }
     }
 
     // ---- Call model with retry ----
@@ -317,7 +388,7 @@ export async function* agentLoop(
     if (readCalls.length > 0) {
       const readResults = await Promise.all(
         readCalls.map(async (tu) => {
-          const result = await executeToolCall(tu, permissionManager, ctx, renderer);
+          const result = await executeToolCall(tu, permissionManager, ctx, renderer, options.onConfirmTool);
           sessionStore.writeToolEvent({
             tool: tu.name,
             input: tu.input,
@@ -360,7 +431,7 @@ export async function* agentLoop(
       if (toolWarning) {
         yield { type: "warning", message: toolWarning };
       }
-      const result = await executeToolCall(tu, permissionManager, ctx, renderer);
+      const result = await executeToolCall(tu, permissionManager, ctx, renderer, options.onConfirmTool);
       yield {
         type: "tool_result",
         id: tu.id,
@@ -519,7 +590,11 @@ async function executeToolCall(
   toolUse: ToolUseBlock,
   permissionManager: PolicyEngine,
   ctx: AgentContext,
-  renderer: StreamRenderer
+  renderer: StreamRenderer,
+  onConfirmTool?: (
+    toolName: string,
+    input: Record<string, unknown>,
+  ) => Promise<ConfirmDecision>,
 ): Promise<{ content: string; isError: boolean }> {
   // Check permission
   const perm = permissionManager.check(toolUse.name, toolUse.input);
@@ -528,9 +603,26 @@ async function executeToolCall(
     if (perm.mode === "manual") {
       return { content: `Permission denied: ${perm.reason}`, isError: true };
     }
-    // "confirm" mode — in Phase 1 with pure ANSI, we auto-approve and log
-    // Phase 2 (Ink TUI) adds interactive confirmation dialogs
-    renderer.renderWarning(`Auto-approved: ${toolUse.name} (confirm mode not interactive yet)`);
+
+    // "confirm" mode — ask user interactively if callback is provided
+    if (onConfirmTool) {
+      const decision = await onConfirmTool(toolUse.name, toolUse.input);
+      switch (decision) {
+        case "allow_once":
+          break; // proceed
+        case "allow_always":
+          permissionManager.allowTool(toolUse.name);
+          break; // proceed + remember
+        case "deny_once":
+          return { content: `User denied: ${toolUse.name}`, isError: true };
+        case "deny_always":
+          permissionManager.denyTool(toolUse.name);
+          return { content: `User denied (all future ${toolUse.name} blocked this session)`, isError: true };
+      }
+    } else {
+      // No callback: auto-approve with warning (subagents, one-shot, etc.)
+      renderer.renderWarning(`Auto-approved: ${toolUse.name} (confirm mode not interactive yet)`);
+    }
   }
 
   // Dispatch to tool handler
@@ -580,16 +672,77 @@ function offloadIfLarge(content: string, toolName: string): string {
   ].join("\n");
 }
 
-/** Rough token estimate: ~1 token per 3 chars for English/Chinese mixed text */
-function estimateTokens(messages: Message[]): number {
-  let chars = 0;
-  for (const msg of messages) {
-    if (typeof msg.content === "string") chars += msg.content.length;
-    else for (const block of msg.content) {
-      if (block.type === "text") chars += block.text.length;
-      else if (block.type === "tool_result") chars += (block.content?.length ?? 0);
-      else if (block.type === "tool_use") chars += JSON.stringify(block.input).length;
+// ---- Token estimation (CJK-aware) ----
+
+/**
+ * Rough token count for a single string. CJK characters (~1.5 tokens/char)
+ * and ASCII (~0.25 tokens/char ≈ 4 chars/token) are counted separately.
+ * Mirrors Claude Code's roughTokenCountEstimation pattern.
+ */
+function roughTokenEstimate(text: string): number {
+  let tokens = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0;
+    // CJK Unified Ideographs + Ext-A, CJK punctuation, fullwidth forms
+    if (
+      (code >= 0x4e00 && code <= 0x9fff) ||   // CJK Unified
+      (code >= 0x3400 && code <= 0x4dbf) ||   // CJK Ext-A
+      (code >= 0x3000 && code <= 0x303f) ||   // CJK punctuation
+      (code >= 0xff00 && code <= 0xffef)      // Fullwidth forms
+    ) {
+      tokens += 1.5;
+    } else {
+      tokens += 0.25;
     }
   }
-  return Math.ceil(chars / 3);
+  return tokens;
+}
+
+/**
+ * Estimate tokens for a message array, counting each content block by type.
+ * Pads by 4/3 to be conservative (matching Claude Code's estimateMessageTokens).
+ */
+function estimateMessageTokens(messages: Message[]): number {
+  let total = 0;
+  for (const msg of messages) {
+    if (typeof msg.content === "string") {
+      total += roughTokenEstimate(msg.content);
+      continue;
+    }
+    for (const block of msg.content) {
+      switch (block.type) {
+        case "text":
+          total += roughTokenEstimate(block.text);
+          break;
+        case "tool_result":
+          total += roughTokenEstimate(block.content ?? "");
+          break;
+        case "tool_use":
+          total += roughTokenEstimate(block.name + JSON.stringify(block.input));
+          break;
+      }
+    }
+  }
+  return Math.ceil(total * (4 / 3));
+}
+
+// ---- Dynamic compaction threshold ----
+
+/** Known context window sizes per model. Default 128K for unknown models. */
+function getEffectiveContextWindow(model: string): number {
+  const CONTEXT_WINDOWS: Record<string, number> = {
+    "deepseek-chat": 1_000_000,
+    "deepseek-reasoner": 1_000_000,
+    "deepseek-v4-pro": 1_000_000,
+    "claude-sonnet-4-20250514": 200_000,
+    "claude-opus-4-20250514": 200_000,
+    "gpt-4o": 128_000,
+    "gpt-4-turbo": 128_000,
+  };
+  return CONTEXT_WINDOWS[model] ?? 128_000;
+}
+
+/** Dynamic threshold = context window - max output - safety buffer */
+function getAutoCompactThreshold(model: string): number {
+  return getEffectiveContextWindow(model) - AUTOCOMPACT_BUFFER;
 }

@@ -5,6 +5,7 @@ import path from "path";
 import fs from "fs";
 import * as readline from "readline";
 import YAML from "yaml";
+import type { ConfirmDecision } from "../core-types.js";
 import { loadConfig, loadEnvFiles } from "./config-loader.js";
 import { AnsiStreamRenderer } from "./stream-renderer.js";
 import { agentLoop } from "../agent/loop.js";
@@ -512,6 +513,62 @@ function handleGrillMeCommand(input: string, pm: PlanManager): void {
   console.log("\n  用法：/grillme on|off|strict|normal|loose|status");
 }
 
+// ---- Permission confirmation prompt ----
+
+/**
+ * Format tool input for display in the confirmation prompt.
+ * Shows the most relevant parameter (command for Bash, file_path for Read/Write/Edit).
+ */
+function formatToolInput(toolName: string, input: Record<string, unknown>): string {
+  if (toolName === "Bash" && input.command) {
+    return String(input.command);
+  }
+  if (input.file_path) {
+    return `${toolName}: ${input.file_path}`;
+  }
+  // Fallback: show first key-value pair
+  const entries = Object.entries(input).slice(0, 2);
+  return entries.map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(", ");
+}
+
+const CONFIRM_BOX_WIDTH = 54;
+
+function createConfirmPrompt(
+  rl: readline.Interface,
+): (toolName: string, input: Record<string, unknown>) => Promise<ConfirmDecision> {
+  return (toolName: string, input: Record<string, unknown>): Promise<ConfirmDecision> => {
+    return new Promise((resolve) => {
+      const detail = formatToolInput(toolName, input);
+      const truncated = detail.length > CONFIRM_BOX_WIDTH - 6
+        ? detail.slice(0, CONFIRM_BOX_WIDTH - 9) + "..."
+        : detail;
+
+      // Box drawing with ANSI
+      const top = `\n  ╔══ \x1b[33m🔧 ${toolName}\x1b[0m ${"═".repeat(Math.max(0, CONFIRM_BOX_WIDTH - toolName.length - 12))}╗`;
+      const mid = `  ║  \x1b[36m${truncated}\x1b[0m${" ".repeat(Math.max(0, CONFIRM_BOX_WIDTH - truncated.length - 6))}║`;
+      const sep = `  ║  ${" ".repeat(CONFIRM_BOX_WIDTH - 6)}║`;
+      const opt = `  ║  \x1b[32m[y]\x1b[0m Yes   \x1b[32m[a]\x1b[0m Always   \x1b[31m[n]\x1b[0m No   \x1b[31m[d]\x1b[0m Deny all  ║`;
+      const bot = `  ╚${"═".repeat(CONFIRM_BOX_WIDTH - 2)}╝`;
+
+      console.log(top);
+      console.log(mid);
+      console.log(sep);
+      console.log(opt);
+      console.log(bot);
+
+      rl.question("  ▸ ", (answer) => {
+        const trimmed = answer.trim().toLowerCase();
+        switch (trimmed) {
+          case "y": case "yes": resolve("allow_once"); break;
+          case "a": case "always": resolve("allow_always"); break;
+          case "d": case "deny all": resolve("deny_always"); break;
+          case "n": case "no": default: resolve("deny_once"); break;
+        }
+      });
+    });
+  };
+}
+
 async function main(): Promise<void> {
   const { prompt, workdir, model, provider, interactive } = parseArgs();
 
@@ -590,6 +647,7 @@ async function main(): Promise<void> {
       renderer,
       getNextUserMessage: rl ? createRepl(rl, planManager, workdir, config, loopOptions) : undefined,
       forceCompaction: loopOptions.forceCompaction,
+      onConfirmTool: rl ? createConfirmPrompt(rl) : undefined,
     })) {
       switch (event.type) {
         case "turn_start":

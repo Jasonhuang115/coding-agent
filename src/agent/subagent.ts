@@ -155,6 +155,7 @@ export async function spawnSubagent(
       renderer: new NoopRenderer(),
       sessionId: agentId,
       tools,
+      skipCompaction: true, // recursion guard: subagents have bounded turns
     })) {
       switch (event.type) {
         case "turn_start":

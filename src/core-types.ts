@@ -122,10 +122,18 @@ export interface AgentConfig {
 
 export type PermissionMode = "auto" | "confirm" | "manual";
 
+/** Result of an interactive permission confirmation. */
+export type ConfirmDecision =
+  | "allow_once"    // Run this time only
+  | "allow_always"  // Run + stop asking for this tool type (rest of session)
+  | "deny_once"     // Skip this time
+  | "deny_always";  // Skip + block this tool type (rest of session)
+
 export interface PermissionRule {
   tool: string;
   pattern: string;
   action: "allow" | "deny" | "ask";
+  reason?: string;
 }
 
 // ---- Model Provider ----

@@ -38,7 +38,7 @@ import { persistKnowledge } from "../journal/extractor.js";
 
 const DEFAULT_MAX_TURNS = 100;
 const DEFAULT_MAX_TOKENS = 16_384;
-const COMPACT_THRESHOLD_MESSAGES = 25;
+const COMPACT_THRESHOLD_MESSAGES = 200; // safety net for many tiny messages; real trigger is token-based
 const OFFLOAD_THRESHOLD = 30_000; // >30KB → disk offload (matching Claude Code); below stays inline
 const APPROX_TOKEN_LIMIT = 800_000;   // trigger compaction well before provider's 1M limit
 const RETRY_MAX_ATTEMPTS = 3;

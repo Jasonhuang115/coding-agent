@@ -20,7 +20,15 @@ export class AnsiStreamRenderer implements StreamRenderer {
   }
 
   renderAssistantMessage(text: string): void {
-    this.thinkingMode = false;
+    // Transition from thinking to normal: flush any pending thinking line, add separator
+    if (this.thinkingMode) {
+      if (this.lineBuf) {
+        process.stdout.write(chalk.dim(`  ${this.lineBuf}\n`));
+        this.lineBuf = "";
+      }
+      process.stdout.write("\n");
+      this.thinkingMode = false;
+    }
     this.lineBuf += text;
     this.drain();
   }

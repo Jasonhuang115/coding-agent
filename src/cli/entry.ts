@@ -4,6 +4,7 @@
 import path from "path";
 import fs from "fs";
 import * as readline from "readline";
+import YAML from "yaml";
 import { loadConfig, loadEnvFiles } from "./config-loader.js";
 import { AnsiStreamRenderer } from "./stream-renderer.js";
 import { agentLoop } from "../agent/loop.js";
@@ -294,6 +295,20 @@ const KNOWN_MODELS: Record<string, string[]> = {
 // Note: if a model is not listed, /model <name> still works —
 // it switches provider to match the known provider pattern, or keeps current provider.
 
+function saveModelPreference(provider: string, model: string): void {
+  const dir = path.join(process.env.HOME ?? "/tmp", ".rubato");
+  fs.mkdirSync(dir, { recursive: true });
+  const configPath = path.join(dir, "config.yml");
+  let existing: Record<string, unknown> = {};
+  try {
+    if (fs.existsSync(configPath)) {
+      existing = YAML.parse(fs.readFileSync(configPath, "utf-8")) ?? {};
+    }
+  } catch { /* overwrite if corrupt */ }
+  existing.model = { ...(existing.model as Record<string, unknown> ?? {}), provider, model };
+  fs.writeFileSync(configPath, YAML.stringify(existing), "utf-8");
+}
+
 function handleModelCommand(input: string, config: { model: { provider: string; model: string } }): void {
   const args = input.split(/\s+/).slice(1);
 
@@ -322,6 +337,7 @@ function handleModelCommand(input: string, config: { model: { provider: string; 
       const oldProvider = config.model.provider;
       config.model.provider = provider;
       config.model.model = match;
+      saveModelPreference(provider, match);
       console.log(`\n  Switched: ${oldProvider}/${oldModel} → ${provider}/${match}`);
       console.log(`  (takes effect on next message)`);
       return;
@@ -332,6 +348,7 @@ function handleModelCommand(input: string, config: { model: { provider: string; 
   if (KNOWN_MODELS[target]) {
     config.model.provider = target;
     config.model.model = KNOWN_MODELS[target][0];
+    saveModelPreference(target, KNOWN_MODELS[target][0]);
     console.log(`\n  Switched to ${target}/${config.model.model}`);
     return;
   }
@@ -349,6 +366,7 @@ function handleModelCommand(input: string, config: { model: { provider: string; 
 
   config.model.provider = guessedProvider;
   config.model.model = args[0];
+  saveModelPreference(guessedProvider, args[0]);
   console.log(`\n  Switched to ${guessedProvider}/${args[0]}`);
   console.log(`  (takes effect on next message)`);
 }

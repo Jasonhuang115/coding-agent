@@ -1,5 +1,7 @@
 // Tool registry — manages tool definitions and dispatch
 
+import fs from "fs";
+import path from "path";
 import type { ToolDefinition, AgentContext, ToolResult } from "../core-types.js";
 
 const tools = new Map<string, ToolDefinition>();
@@ -64,7 +66,6 @@ export function enforceReadGuard(
 
   // If file doesn't exist yet, it's a new file — allow
   try {
-    const fs = require("fs");
     if (!fs.existsSync(normalized)) {
       return { allowed: true };
     }
@@ -80,7 +81,6 @@ export function enforceReadGuard(
 }
 
 function normalizePath(filePath: string): string {
-  const path = require("path");
   if (path.isAbsolute(filePath)) return path.normalize(filePath);
   return path.normalize(path.resolve(process.cwd(), filePath));
 }

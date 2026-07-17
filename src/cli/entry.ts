@@ -2,6 +2,7 @@
 // CLI entry point — parses arguments, loads config, runs the agent
 
 import path from "path";
+import fs from "fs";
 import * as readline from "readline";
 import { loadConfig, loadEnvFiles } from "./config-loader.js";
 import { AnsiStreamRenderer } from "./stream-renderer.js";
@@ -110,7 +111,7 @@ function getStdinPrompt(): string {
     const { stdin } = process;
     if (!stdin.isTTY) {
       // Synchronous read for piped content
-      const fs = require("fs");
+      
       const fd = fs.openSync("/dev/stdin", "r");
       const buffer = Buffer.alloc(1024 * 1024); // 1MB max
       const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);

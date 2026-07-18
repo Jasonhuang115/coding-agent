@@ -32,6 +32,8 @@ export async function prePushHook(workingDir: string): Promise<GitHookResult> {
   const suggestions: string[] = [];
   let blocked = false;
 
+  warnings.push("[Git Hook] prePushHook triggered — checking remote conflicts...");
+
   if (!(await isGitRepo(workingDir))) {
     return { warnings: [], suggestions: [], blocked: false };
   }
@@ -43,6 +45,9 @@ export async function prePushHook(workingDir: string): Promise<GitHookResult> {
       warnings.push(`[Preflight] ${w.message}`);
     }
     suggestions.push(...preflight.recommendations);
+    if (preflight.warnings.length === 0) {
+      warnings.push("[Preflight] No issues found — safe to push");
+    }
   }
 
   // 2. Team radar
@@ -70,6 +75,8 @@ export async function preCommitHook(
   const warnings: string[] = [];
   const suggestions: string[] = [];
   let blocked = false;
+
+  warnings.push("[Git Hook] preCommitHook triggered — verifying commit intent...");
 
   if (!(await isGitRepo(workingDir))) {
     return { warnings: [], suggestions: [], blocked: false };

@@ -2,7 +2,7 @@
 // Enforces "read before write" policy for Write and Edit tools
 
 import { createHash } from "crypto";
-import type { ReadGuardState, ReadGuardSnapshot } from "../core-types.js";
+import type { ReadGuardState, ReadGuardSnapshot } from "../shared/core-types.js";
 
 export class ReadGuard implements ReadGuardState {
   private files: Map<string, { timestamp: number; hash: string }> = new Map();

@@ -1,7 +1,7 @@
 // Skill tool — lets the model invoke fork-mode skills directly
 // Inline skills live in the system prompt; fork skills are callable via this tool.
 
-import type { ToolDefinition, AgentContext } from "../core-types.js";
+import type { ToolDefinition, AgentContext } from "../shared/core-types.js";
 import { getSkillRegistry } from "../skills/registry.js";
 import { spawnSubagent } from "../agent/subagent.js";
 import { PolicyEngine } from "../permissions/policy.js";

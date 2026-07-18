@@ -9,7 +9,7 @@ import type {
   ToolDefinition,
   Message,
   TokenUsage,
-} from "../core-types.js";
+} from "../shared/core-types.js";
 
 export class OpenAICompatProvider implements ModelProvider {
   readonly name: string;

@@ -6,7 +6,7 @@ import { MnemosyneStore, getMnemosyneStore, closeMnemosyneStore } from "../src/m
 import { evaluateMemory, evaluateAll, getInjectCandidates, THRESHOLDS } from "../src/memory/evaluator.js";
 import { rewriteQuery, learnQueryRewrite } from "../src/memory/rewriter.js";
 import { shouldConsolidate, consolidateMemories } from "../src/memory/consolidator.js";
-import { generateSimpleEmbedding, cosineSimilarity } from "../src/embedding/setup.js";
+import { generateSimpleEmbedding, cosineSimilarity } from "../src/memory/embedding/setup.js";
 
 const TEST_DB = "/tmp/test-mnemosyne.db";
 

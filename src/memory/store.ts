@@ -7,7 +7,7 @@ import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
 import type { MemoryStore, MemoryEntry, MemoryEdge } from "./schema.js";
-import { generateSimpleEmbedding } from "../embedding/setup.js";
+import { generateSimpleEmbedding } from "./embedding/setup.js";
 
 const DECAY_RATE = 0.01;
 const DECAY_THRESHOLD = 0.3;

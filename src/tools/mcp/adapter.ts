@@ -1,7 +1,7 @@
 // MCP adapter — converts MCP tools into Rubato ToolDefinition format
 // Allows MCP servers to be used as regular tools in the agent loop
 
-import type { ToolDefinition, AgentContext } from "../core-types.js";
+import type { ToolDefinition, AgentContext } from "../../shared/core-types.js";
 import type { McpTool, CallToolResult } from "./types.js";
 import type { McpClient } from "./client.js";
 

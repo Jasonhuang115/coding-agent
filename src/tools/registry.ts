@@ -2,7 +2,7 @@
 
 import fs from "fs";
 import path from "path";
-import type { ToolDefinition, AgentContext, ToolResult } from "../core-types.js";
+import type { ToolDefinition, AgentContext, ToolResult } from "../shared/core-types.js";
 
 const tools = new Map<string, ToolDefinition>();
 

@@ -1,7 +1,7 @@
 // Bash tool — executes shell commands
 
 import { exec, spawn } from "child_process";
-import type { ToolDefinition, AgentContext } from "../core-types.js";
+import type { ToolDefinition, AgentContext } from "../shared/core-types.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000; // 2 minutes
 const MAX_TIMEOUT_MS = 600_000; // 10 minutes

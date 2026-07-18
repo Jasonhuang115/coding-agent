@@ -1,6 +1,6 @@
 // Default permission configuration
 
-import type { AgentConfig } from "../core-types.js";
+import type { AgentConfig } from "../shared/core-types.js";
 
 export const DEFAULT_PERMISSIONS: AgentConfig["permissions"] = {
   bash: "confirm",

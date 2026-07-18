@@ -1,10 +1,10 @@
 // Plan Tool — allows the AI to create and manage plans programmatically
 // This bridges the gap between system prompt instructions and actual plan operations
 
-import type { ToolDefinition, AgentContext } from "../core-types.js";
-import { loadPlan, savePlan, serializePlan } from "../plan/tree.js";
-import { getGrillMeConfig } from "../plan/grillme.js";
-import type { PlanDoc } from "../plan/tree.js";
+import type { ToolDefinition, AgentContext } from "../shared/core-types.js";
+import { loadPlan, savePlan, serializePlan } from "../agent/planner/tree.js";
+import { getGrillMeConfig } from "../agent/planner/grillme.js";
+import type { PlanDoc } from "../agent/planner/tree.js";
 import * as fs from "fs";
 import * as path from "path";
 

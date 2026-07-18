@@ -3,7 +3,7 @@
 // Uses a lightweight, rule-based approach for speed; LLM extraction as fallback
 
 import type { MnemosyneStore } from "./store.js";
-import type { Message } from "../core-types.js";
+import type { Message } from "../shared/core-types.js";
 
 // ---- Types ----
 

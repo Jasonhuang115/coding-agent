@@ -3,7 +3,7 @@
 
 import { gitExec } from "./advisor.js";
 import { narrateHistory } from "./archaeology.js";
-import type { MnemosyneStore } from "../memory/store.js";
+import type { MnemosyneStore } from "../../memory/store.js";
 
 export interface SemanticBlameResult {
   file: string;

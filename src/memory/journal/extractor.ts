@@ -1,8 +1,8 @@
 // Journal Extractor — auto-detects valuable knowledge in conversations
 // Phase 2: Extracts to unified Mnemosyne entities table
 
-import type { Message } from "../core-types.js";
-import { getMnemosyneStore } from "../memory/store.js";
+import type { Message } from "../../shared/core-types.js";
+import { getMnemosyneStore } from "../store.js";
 
 // ---- Signal detection ----
 

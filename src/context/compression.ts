@@ -1,6 +1,6 @@
 // Context compression — MicroCompact + Snip for managing context window
 
-import type { Message } from "../core-types.js";
+import type { Message } from "../shared/core-types.js";
 
 // ---- MicroCompact: condense individual messages ----
 
@@ -192,7 +192,7 @@ export function snipLines(
 // Spawns a no-tool subagent to generate a structured 9-field summary.
 // Uses dynamic import to avoid circular dependency: loop.ts → compression.ts → subagent.ts → loop.ts
 
-import type { AgentContext, AgentConfig } from "../core-types.js";
+import type { AgentContext, AgentConfig } from "../shared/core-types.js";
 
 const COMPACT_SYSTEM_PROMPT = `You are a conversation summarizer. Your job is to read the conversation and produce a detailed, structured summary that preserves all critical information needed to continue work without losing context.
 

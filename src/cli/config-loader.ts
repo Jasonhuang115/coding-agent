@@ -3,7 +3,7 @@
 import fs from "fs";
 import path from "path";
 import YAML from "yaml";
-import type { AgentConfig } from "../core-types.js";
+import type { AgentConfig } from "../shared/core-types.js";
 import { DEFAULT_PERMISSIONS } from "../permissions/config.js";
 
 const CONFIG_FILE_NAMES = [

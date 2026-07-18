@@ -3,7 +3,7 @@
 
 import fs from "fs";
 import path from "path";
-import type { SubagentDefinition } from "../core-types.js";
+import type { SubagentDefinition } from "../shared/core-types.js";
 
 let customDefs: SubagentDefinition[] = [];
 

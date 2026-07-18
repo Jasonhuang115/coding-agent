@@ -1,15 +1,13 @@
 // Mnemosyne memory graph — Phase 1 scaffold, Phase 2 implementation
 // Phase 1: Schema definition only. No runtime operations.
 
-import { MEMORY_SCHEMA_SQL, getMemoryDBPath } from "../embedding/setup.js";
-
 export interface MemoryEntry {
   id?: number;
   type: "fact" | "feedback" | "reference" | "project";
   content: string;
   source?: string;
   timestamp: number;
-  // embedding is stored separately via sqlite-vec
+  // embedding is stored separately
 }
 
 export interface MemoryEdge {
@@ -19,19 +17,6 @@ export interface MemoryEdge {
   relation: "relates_to" | "contradicts" | "extends" | "depends_on";
   weight: number;
   timestamp: number;
-}
-
-/**
- * Initialize Mnemosyne database.
- * Phase 1: only creates the schema file as a reference.
- * Phase 2: creates tables via better-sqlite3 + sqlite-vec.
- */
-export function getSchemaSQL(): string {
-  return MEMORY_SCHEMA_SQL;
-}
-
-export function getDBPath(): string {
-  return getMemoryDBPath();
 }
 
 // ---- Extension point: Phase 2 vector search ----
@@ -46,26 +31,14 @@ export interface MemoryStore {
 }
 
 // Phase 1: no-op store
-// Phase 2: replaces this with BetterSQLite3MemoryStore
+// Phase 2: replaces this with MnemosyneStore
 const storePlaceholder: MemoryStore = {
-  async addEntry() {
-    return -1;
-  },
-  async addEdge() {
-    return -1;
-  },
-  async search() {
-    return [];
-  },
-  async searchByVector() {
-    return [];
-  },
-  async getEdges() {
-    return [];
-  },
-  async getRelated() {
-    return [];
-  },
+  async addEntry() { return -1; },
+  async addEdge() { return -1; },
+  async search() { return []; },
+  async searchByVector() { return []; },
+  async getEdges() { return []; },
+  async getRelated() { return []; },
 };
 
 let activeStore: MemoryStore = storePlaceholder;

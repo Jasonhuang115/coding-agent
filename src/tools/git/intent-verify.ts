@@ -3,7 +3,7 @@
 // Works with Grill Me's intention tree to catch WIP creep
 
 import { gitExec } from "./advisor.js";
-import type { PlanDoc } from "../plan/tree.js";
+import type { PlanDoc } from "../../agent/planner/tree.js";
 
 export interface IntentVerification {
   /** Overall assessment */

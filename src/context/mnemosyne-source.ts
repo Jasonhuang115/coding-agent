@@ -1,7 +1,7 @@
 // Mnemosyne context source — injects relevant memories into the system prompt
 // Uses Fusion multi-strategy retrieval (vector + FTS5 + graph, RRF merged)
 
-import type { ContextSource, ContextBlock, AgentContext } from "../core-types.js";
+import type { ContextSource, ContextBlock, AgentContext } from "../shared/core-types.js";
 import { getMnemosyneStore } from "../memory/store.js";
 import { hybridRetrieve, type FusionResult } from "../memory/fusion.js";
 

@@ -16,7 +16,7 @@ import type {
   StreamRenderer,
   ToolDefinition,
   ConfirmDecision,
-} from "../core-types.js";
+} from "../shared/core-types.js";
 import { createProvider } from "../model/router.js";
 import { getAllTools, dispatch, getReadTools, getWriteTools } from "../tools/registry.js";
 import { ContextChain } from "../context/sources.js";
@@ -30,15 +30,15 @@ import { microCompact, compactViaSubagent } from "../context/compression.js";
 import { microCompactBeforeRequest } from "../context/micro-compact.js";
 import { PolicyEngine } from "../permissions/policy.js";
 import { ReadGuard } from "./read-guard.js";
-import { SessionStore } from "../session/storage.js";
-import { createSessionMeta, finalizeSessionMeta } from "../session/meta.js";
-import type { SessionManager } from "../session/manager.js";
-import { PlanManager } from "../plan/manager.js";
-import type { PlanDoc } from "../plan/tree.js";
-import { sessionStartRecall } from "../journal/recall.js";
-import { persistKnowledge } from "../journal/extractor.js";
+import { SessionStore } from "../runtime/session/storage.js";
+import { createSessionMeta, finalizeSessionMeta } from "../runtime/session/meta.js";
+import type { SessionManager } from "../runtime/session/manager.js";
+import { PlanManager } from "../agent/planner/manager.js";
+import type { PlanDoc } from "../agent/planner/tree.js";
+import { sessionStartRecall } from "../memory/journal/recall.js";
+import { persistKnowledge } from "../memory/journal/extractor.js";
 import { getMnemosyneStore } from "../memory/store.js";
-import { sessionStartHook, sessionEndHook, prePushHook, preCommitHook, conflictCheckHook } from "../git/hooks.js";
+import { sessionStartHook, sessionEndHook, prePushHook, preCommitHook, conflictCheckHook } from "../tools/git/hooks.js";
 
 // ---- Configuration constants ----
 

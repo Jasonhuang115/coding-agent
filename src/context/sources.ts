@@ -1,6 +1,6 @@
 // ContextSource chain — collects context blocks before each turn
 
-import type { ContextSource, ContextBlock, AgentContext } from "../core-types.js";
+import type { ContextSource, ContextBlock, AgentContext } from "../shared/core-types.js";
 
 export class ContextChain {
   private sources: ContextSource[] = [];

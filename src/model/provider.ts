@@ -7,4 +7,4 @@ export type {
   Message,
   ContentBlock,
   ToolDefinition,
-} from "../core-types.js";
+} from "../shared/core-types.js";

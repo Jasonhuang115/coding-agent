@@ -1,8 +1,8 @@
 // Journal Recall — triggered recall of relevant knowledge
 // Phase 2: Backed by unified Mnemosyne entities table
 
-import { getMnemosyneStore } from "../memory/store.js";
-import type { EntityRow } from "../memory/store.js";
+import { getMnemosyneStore } from "../store.js";
+import type { EntityRow } from "../store.js";
 
 export interface RecallResult {
   query: string; entries: EntityRow[]; summary: string; contextBlock: string | null;

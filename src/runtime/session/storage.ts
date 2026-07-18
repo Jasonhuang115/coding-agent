@@ -4,7 +4,7 @@
 
 import fs from "fs";
 import path from "path";
-import type { SessionMeta, SessionRecord } from "../core-types.js";
+import type { SessionMeta, SessionRecord } from "../../shared/core-types.js";
 
 function getSessionDir(projectHash?: string): string {
   if (projectHash) {

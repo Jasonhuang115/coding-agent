@@ -2,7 +2,7 @@
 
 import fs from "fs";
 import path from "path";
-import type { ToolDefinition, AgentContext } from "../core-types.js";
+import type { ToolDefinition, AgentContext } from "../shared/core-types.js";
 
 const MAX_RESULTS = 500;
 

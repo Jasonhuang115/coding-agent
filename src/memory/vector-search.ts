@@ -1,5 +1,5 @@
 // Vector search — brute-force cosine similarity over entity embeddings
-import { cosineSimilarity } from "../embedding/setup.js";
+import { cosineSimilarity } from "./embedding/setup.js";
 import type { MnemosyneStore, EntityRow } from "./store.js";
 
 export interface VectorSearchResult { entity: EntityRow; similarity: number; }
@@ -9,7 +9,7 @@ export function storeEmbedding(store: MnemosyneStore, entityId: number, embeddin
 }
 
 export async function embedAndStore(store: MnemosyneStore, entityId: number, text: string): Promise<void> {
-  const { generate } = await import("../embedding/generate.js");
+  const { generate } = await import("./embedding/generate.js");
   const embedding = await generate(text);
   if (embedding) storeEmbedding(store, entityId, embedding);
 }

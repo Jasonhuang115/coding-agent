@@ -12,10 +12,10 @@ import type {
   AgentContext,
   AgentConfig,
   ToolDefinition,
-} from "../core-types.js";
+} from "../shared/core-types.js";
 import { getTool, getAllTools } from "../tools/registry.js";
 import { agentLoop } from "./loop.js";
-import { SessionStore } from "../session/storage.js";
+import { SessionStore } from "../runtime/session/storage.js";
 
 // ---- Built-in subagent definitions ----
 

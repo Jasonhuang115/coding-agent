@@ -8,7 +8,7 @@
 // time-based micro-compact, adapted for Rubato's message model
 // (which doesn't carry per-message timestamps).
 
-import type { Message } from "../core-types.js";
+import type { Message } from "../shared/core-types.js";
 
 // ---- Configuration ----
 

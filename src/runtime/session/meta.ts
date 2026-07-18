@@ -1,6 +1,6 @@
 // SessionMeta management — tracks session metadata
 
-import type { SessionMeta } from "../core-types.js";
+import type { SessionMeta } from "../../shared/core-types.js";
 
 export function createSessionMeta(
   id: string,

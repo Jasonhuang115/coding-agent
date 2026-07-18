@@ -2,8 +2,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { register, getTool, getAllTools, clear } from "../src/tools/registry.js";
 import { ReadGuard } from "../src/agent/read-guard.js";
-import type { AgentContext } from "../src/core-types.js";
-import type { PermissionManager, PermissionResult } from "../src/core-types.js";
+import type { AgentContext } from "../src/shared/core-types.js";
+import type { PermissionManager, PermissionResult } from "../src/shared/core-types.js";
 
 // Minimal mock context for testing
 function mockCtx(overrides?: Partial<AgentContext>): AgentContext {

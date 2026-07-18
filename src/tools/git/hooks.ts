@@ -11,8 +11,8 @@ import { detectConceptQuestion, explainWithContext } from "./newbie-guide.js";
 import { scanTeamRadar, type TeamRadarResult } from "./team-radar.js";
 import { learnWorkflow, checkAgainstProfile, type WorkflowProfile } from "./workflow-learner.js";
 import { hasConflicts, listConflictedFiles, narrateConflict } from "./conflict-narrator.js";
-import type { PlanDoc } from "../plan/tree.js";
-import type { MnemosyneStore } from "../memory/store.js";
+import type { PlanDoc } from "../../agent/planner/tree.js";
+import type { MnemosyneStore } from "../../memory/store.js";
 
 // ---- Types ----
 

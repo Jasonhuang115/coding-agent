@@ -1,7 +1,7 @@
 // Git status source — provides repository context
 
 import { spawn } from "child_process";
-import type { ContextSource, ContextBlock, AgentContext } from "../core-types.js";
+import type { ContextSource, ContextBlock, AgentContext } from "../shared/core-types.js";
 
 export class GitStatusSource implements ContextSource {
   readonly name = "git-status";

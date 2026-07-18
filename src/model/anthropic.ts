@@ -9,7 +9,7 @@ import type {
   ToolDefinition,
   Message as AgentMessage,
   ContentBlock,
-} from "../core-types.js";
+} from "../shared/core-types.js";
 
 export class AnthropicProvider implements ModelProvider {
   readonly name = "anthropic";

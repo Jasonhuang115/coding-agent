@@ -11,7 +11,7 @@ import type {
   SubagentDefinition,
   ToolDefinition,
   ContextSource,
-} from "../core-types.js";
+} from "../shared/core-types.js";
 import { register as registerTool, getTool } from "../tools/registry.js";
 
 // ---- Shared skill-to-subagent bridge ----

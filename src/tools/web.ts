@@ -1,5 +1,5 @@
 // Web tool — web fetch and search (Tavily API)
-import type { ToolDefinition, AgentContext } from "../core-types.js";
+import type { ToolDefinition, AgentContext } from "../shared/core-types.js";
 
 // ---- WebFetch ----
 

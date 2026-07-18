@@ -48,7 +48,7 @@ export async function hybridRetrieve(query: string, limit = 10): Promise<FusionS
   const vectorStart = Date.now();
   const vectorResults = new Map<number, { entity: EntityRow; rank: number; score: number }>();
   try {
-    const { generate } = await import("../embedding/generate.js");
+    const { generate } = await import("./embedding/generate.js");
     const embedding = await generate(query);
     if (embedding) {
       const { searchByVector } = await import("./vector-search.js");

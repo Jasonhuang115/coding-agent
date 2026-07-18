@@ -4,7 +4,7 @@ import { ReadGuard } from "../src/agent/read-guard.js";
 import { ContextChain } from "../src/context/sources.js";
 import { PolicyEngine } from "../src/permissions/policy.js";
 import { register, clear } from "../src/tools/registry.js";
-import type { AgentConfig, AgentContext, ContextBlock, ContextSource } from "../src/core-types.js";
+import type { AgentConfig, AgentContext, ContextBlock, ContextSource } from "../src/shared/core-types.js";
 
 // Mock context
 function mockCtx(overrides?: Partial<AgentContext>): AgentContext {
@@ -168,7 +168,7 @@ describe("Context chain with mock sources", () => {
 
 describe("Session meta", () => {
   it("creates session meta with defaults", async () => {
-    const { createSessionMeta } = await import("../src/session/meta.js");
+    const { createSessionMeta } = await import("../src/runtime/session/meta.js");
 
     const meta = createSessionMeta("session-1", "deepseek/deepseek-chat");
     expect(meta.id).toBe("session-1");
@@ -178,7 +178,7 @@ describe("Session meta", () => {
   });
 
   it("records file access history", async () => {
-    const { createSessionMeta, recordFileAccess } = await import("../src/session/meta.js");
+    const { createSessionMeta, recordFileAccess } = await import("../src/runtime/session/meta.js");
 
     const meta = createSessionMeta("s1", "test-model");
     recordFileAccess(meta, "/tmp/a.ts");

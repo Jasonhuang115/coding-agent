@@ -4,7 +4,7 @@ import type {
   PermissionManager,
   PermissionResult,
   AgentConfig,
-} from "../core-types.js";
+} from "../shared/core-types.js";
 import { HARD_BLACKLIST, DEFAULT_ALLOW_RULES } from "./config.js";
 import type { PermissionRule } from "./config.js";
 

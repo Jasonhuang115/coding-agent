@@ -2,7 +2,7 @@
 
 import { spawn } from "child_process";
 import path from "path";
-import type { ToolDefinition, AgentContext } from "../core-types.js";
+import type { ToolDefinition, AgentContext } from "../shared/core-types.js";
 
 const MAX_MATCHES = 500;
 const MAX_OUTPUT_LENGTH = 100_000;

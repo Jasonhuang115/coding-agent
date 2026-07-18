@@ -5,7 +5,7 @@
 import fs from "fs";
 import path from "path";
 import { getMnemosyneStore } from "./store.js";
-import { isGitRepo, gitExec } from "../git/advisor.js";
+import { isGitRepo, gitExec } from "../tools/git/advisor.js";
 
 export interface SeedResult {
   totalSeeded: number;

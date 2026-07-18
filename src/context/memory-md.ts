@@ -2,7 +2,7 @@
 
 import fs from "fs";
 import path from "path";
-import type { ContextSource, ContextBlock, AgentContext } from "../core-types.js";
+import type { ContextSource, ContextBlock, AgentContext } from "../shared/core-types.js";
 
 export class MemoryMdSource implements ContextSource {
   readonly name = "memory-md";

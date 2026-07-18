@@ -10,7 +10,7 @@ import type {
   ToolDefinition,
   Message,
   TokenUsage,
-} from "../core-types.js";
+} from "../shared/core-types.js";
 
 export class DeepSeekProvider implements ModelProvider {
   readonly name = "deepseek";

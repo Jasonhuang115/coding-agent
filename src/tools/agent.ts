@@ -2,7 +2,7 @@
 // Supports: built-in types, custom definitions, worktree isolation, background execution
 
 import fs from "fs";
-import type { ToolDefinition, AgentContext } from "../core-types.js";
+import type { ToolDefinition, AgentContext } from "../shared/core-types.js";
 import { getBuiltinDefinition, spawnSubagent, spawnSubagentInWorktree, spawnSubagentInBackground } from "../agent/subagent.js";
 import { findDefinition, getAllDefinitions } from "../agent/agent-defs.js";
 

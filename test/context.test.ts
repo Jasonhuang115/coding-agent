@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { ContextChain } from "../src/context/sources.js";
 import { microCompact, snipContent, snipLines } from "../src/context/compression.js";
 import { buildSystemPrompt } from "../src/context/system-prompt.js";
-import type { ContextSource, ContextBlock, AgentContext, ToolDefinition } from "../src/core-types.js";
+import type { ContextSource, ContextBlock, AgentContext, ToolDefinition } from "../src/shared/core-types.js";
 
 function mockCtx(): AgentContext {
   return {

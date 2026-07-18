@@ -1,7 +1,7 @@
 // Model layer tests
 import { describe, it, expect } from "vitest";
 import { createProvider } from "../src/model/router.js";
-import type { AgentConfig } from "../src/core-types.js";
+import type { AgentConfig } from "../src/shared/core-types.js";
 
 describe("Model Router", () => {
   function config(provider: string, baseURL?: string): AgentConfig["model"] {

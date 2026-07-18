@@ -2,7 +2,7 @@
 // Phase 1: Pure ANSI escape codes (no Ink dependency)
 // Phase 2: Replaced by Ink TUI with full React component tree
 
-import type { StreamRenderer } from "../core-types.js";
+import type { StreamRenderer } from "../shared/core-types.js";
 import chalk from "chalk";
 
 const BOLD = "\x1b[1m";

@@ -1,6 +1,6 @@
 // Model router — selects provider based on config
 
-import type { ModelProvider, AgentConfig } from "../core-types.js";
+import type { ModelProvider, AgentConfig } from "../shared/core-types.js";
 import { DeepSeekProvider } from "./deepseek.js";
 import { OpenAICompatProvider } from "./openai-compat.js";
 import { AnthropicProvider } from "./anthropic.js";

@@ -6,7 +6,7 @@ import path from "path";
 import fs from "fs";
 import * as readline from "readline";
 import YAML from "yaml";
-import type { ConfirmDecision, SessionMeta } from "../core-types.js";
+import type { ConfirmDecision, SessionMeta } from "../shared/core-types.js";
 import { loadConfig, loadEnvFiles } from "./config-loader.js";
 import { AnsiStreamRenderer } from "./stream-renderer.js";
 import { agentLoop, abortCurrentRequest } from "../agent/loop.js";
@@ -26,23 +26,22 @@ import { todoWriteTool } from "../tools/todo.js";
 import { planTool } from "../tools/plan.js";
 import { agentTool } from "../tools/agent.js";
 import { skillTool } from "../tools/skill.js";
-import { PlanManager } from "../plan/manager.js";
-import { getJournalStore } from "../journal/store.js";
+import { PlanManager } from "../agent/planner/manager.js";
+import { getJournalStore } from "../memory/journal/store.js";
 import { getMnemosyneStore } from "../memory/store.js";
 import { initCustomDefinitions } from "../agent/agent-defs.js";
-import { initEmbeddings } from "../embedding/generate.js";
-import { getGitState, getCurrentBranch } from "../git/advisor.js";
-import { getBranchHealth } from "../git/branch-health.js";
-import { McpClient } from "../mcp/client.js";
-import { connectMcpServer, adaptMcpTool } from "../mcp/adapter.js";
-import type { McpServerConfig } from "../mcp/types.js";
+import { getGitState, getCurrentBranch } from "../tools/git/advisor.js";
+import { getBranchHealth } from "../tools/git/branch-health.js";
+import { McpClient } from "../tools/mcp/client.js";
+import { connectMcpServer, adaptMcpTool } from "../tools/mcp/adapter.js";
+import type { McpServerConfig } from "../tools/mcp/types.js";
 import { loadAllSkills } from "../skills/loader.js";
 import { getSkillRegistry } from "../skills/registry.js";
 import type { SkillDefinition } from "../skills/types.js";
 import { spawnSubagent } from "../agent/subagent.js";
-import type { AgentConfig, AgentContext } from "../core-types.js";
+import type { AgentConfig, AgentContext } from "../shared/core-types.js";
 import { PolicyEngine } from "../permissions/policy.js";
-import { SessionManager } from "../session/manager.js";
+import { SessionManager } from "../runtime/session/manager.js";
 
 // Register all tools
 register(readTool);
@@ -991,9 +990,6 @@ async function main(): Promise<void> {
   try { initCustomDefinitions(workdir); } catch { /* optional */ }
   // Load skills from .rubato/skills/
   try { loadAllSkills(workdir); } catch { /* optional */ }
-  // Initialize embedding infrastructure (lazy download)
-  initEmbeddings().catch(() => {});
-
   // Backfill embeddings for any entities missing them
   try {
     const { embedAllEntities } = await import("../memory/vector-search.js");

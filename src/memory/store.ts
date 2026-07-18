@@ -7,6 +7,7 @@ import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
 import type { MemoryStore, MemoryEntry, MemoryEdge } from "./schema.js";
+import { generateSimpleEmbedding } from "../embedding/setup.js";
 
 const DECAY_RATE = 0.01;
 const DECAY_THRESHOLD = 0.3;
@@ -222,7 +223,15 @@ export class MnemosyneStore implements MemoryStore {
       )
       .run(type, name, content, sourceSession, source, isProtected, confidence, now, now);
 
-    return Number(result.lastInsertRowid);
+    const id = Number(result.lastInsertRowid);
+
+    // Auto-generate embedding for vector search
+    try {
+      const emb = generateSimpleEmbedding(`${name} ${content}`.slice(0, 500));
+      this.setEmbedding(id, Buffer.from(emb.buffer, emb.byteOffset, emb.byteLength));
+    } catch { /* best-effort */ }
+
+    return id;
   }
 
   findEntityByName(name: string, type?: string): EntityRow | null {
@@ -385,6 +394,11 @@ export class MnemosyneStore implements MemoryStore {
   getByType(type: string, limit = 50): EntityRow[] {
     const rows = this.db.prepare(`SELECT * FROM entities WHERE type = ? ORDER BY updated_at DESC LIMIT ?`).all(type, limit);
     return rows as EntityRow[];
+  }
+
+  /** Get most recent entities with content */
+  getRecentEntities(limit = 20): EntityRow[] {
+    return this.db.prepare(`SELECT * FROM entities ORDER BY updated_at DESC LIMIT ?`).all(limit) as EntityRow[];
   }
 
   getAllEntityIds(limit = 200): Array<{ id: number }> {

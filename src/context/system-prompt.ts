@@ -237,7 +237,7 @@ function planGuidance(ctx: AgentContext): string {
   return `## Grill Me — Plan & Deviation Tracking${planSection}
 
 ### REQUIREMENTS GATHERING MODE (no plan exists yet)
-When the user asks for any non-trivial task (new feature, refactor, bug fix spanning multiple files), you MUST do this BEFORE writing ANY code:
+When the user asks for any non-trivial task, OR explicitly says "规划"/"plan"/"方案"/"怎么修"/"怎么改", you MUST do this BEFORE writing ANY code:
 
 1. **Stop and ask questions.** Do NOT jump into coding. Load the relevant checklist mentally:
    - Auth tasks: confirm auth method (JWT/Session/OAuth), user storage, password policy, session management, framework, testing
@@ -287,9 +287,12 @@ When the user asks for any non-trivial task (new feature, refactor, bug fix span
 - If the user wants to change a completed decision, re-evaluate affected tasks.
 
 ### PLAN MODE TRIGGERS
-These user messages signal intent to plan (stop and gather requirements):
-- "/plan", "plan mode", "先计划", "帮我规划", "制定计划", "plan this"
-- Any description of a multi-step task without specific technical details
+**If the user says ANY of these, you MUST enter plan mode regardless of task size:**
+- "规划", "计划", "plan", "/plan", "先想一下", "方案", "怎么修", "怎么改"
+- Even for a one-line fix. If they say "规划", STOP and present a plan first. NEVER skip directly to coding.
+
+Additionally, enter plan mode for:
+- Any multi-step task without specific technical details
 - "我要做...", "帮我加...", "新建一个..." without mentioning exact implementation
 
 ### SAVING THE PLAN

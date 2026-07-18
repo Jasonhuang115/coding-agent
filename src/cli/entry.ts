@@ -333,6 +333,30 @@ async function handleMemoryCommand(input: string): Promise<void> {
       console.log(`\n  搜索「${query}」结果：`);
       for (const { entity, relevance } of results) {
         console.log(`  - [${entity.type}] ${entity.name} (相关度: ${relevance.toFixed(2)})`);
+        if (entity.content) console.log(`    ${entity.content.slice(0, 120)}`);
+      }
+      return;
+    }
+
+    if (args[0] === "list") {
+      const showAll = args[1] === "all";
+      const recent = store.getRecentEntities(50);
+      // Filter: by default hide auto-seeded project scans
+      const filtered = showAll ? recent : recent.filter((e) =>
+        !e.name.includes("/languages") && !e.name.includes("/structure") &&
+        e.source !== "seeder" && e.type !== "concept"
+      );
+      if (filtered.length === 0) {
+        console.log("\n  📭 暂无对话中积累的记忆。用 /memory list all 查看全部（含自动扫描）。");
+        return;
+      }
+      const label = showAll ? "全部记忆" : "对话记忆（不含自动扫描）";
+      console.log(`\n  🧠 ${label}：`);
+      for (const e of filtered.slice(0, 20)) {
+        const icon = { file: "📄", function: "🔧", concept: "💡", config: "⚙️", error: "🐛", note: "📝", test: "✅", api: "🔌" }[e.type] ?? "📌";
+        const source = e.source === "manual" ? " [手动]" : e.source === "extractor" ? " [对话提取]" : e.source === "seeder" ? " [自动扫描]" : "";
+        console.log(`  ${icon} [${e.type}] ${e.name}${source}`);
+        if (e.content) console.log(`     ${e.content.slice(0, 120)}`);
       }
       return;
     }
@@ -340,7 +364,7 @@ async function handleMemoryCommand(input: string): Promise<void> {
     console.log("\n  记忆系统未初始化或不可用。");
     return;
   }
-  console.log("\n  用法：/memory、/memory stats、/memory search <q>");
+  console.log("\n  用法：/memory、/memory stats、/memory search <q>、/memory list");
 }
 
 // ---- Model command handler ----
@@ -634,6 +658,52 @@ interface LoopState {
   resumeSummary?: string;
 }
 
+// ---- First message handler (with slash command support) ----
+
+async function getFirstMessage(
+  rl: readline.Interface,
+  planManager: PlanManager,
+  workdir: string,
+  config: { model: { provider: string; model: string } }
+): Promise<string> {
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const trimmed = await new Promise<string>((resolve) => {
+      rl.question("\n▸ You: ", (answer) => resolve(answer.trim()));
+    });
+    if (!trimmed) return "/exit";
+
+    // Handle slash commands locally, loop back for real message
+    if (trimmed === "/exit" || trimmed === "/quit") return "/exit";
+    if (trimmed === "/help") { showHelp(); continue; }
+    if (trimmed.startsWith("/plan")) { handlePlanCommand(trimmed, planManager); continue; }
+    if (trimmed.startsWith("/grillme")) { handleGrillMeCommand(trimmed, planManager); continue; }
+    if (trimmed.startsWith("/git")) { handleGitCommand(trimmed, workdir); continue; }
+    if (trimmed.startsWith("/journal") || trimmed.startsWith("/remember")) { handleJournalCommand(trimmed, workdir); continue; }
+    if (trimmed.startsWith("/memory")) { handleMemoryCommand(trimmed); continue; }
+    if (trimmed.startsWith("/model")) { handleModelCommand(trimmed, config); continue; }
+
+    // Not a slash command — send to agent
+    return trimmed;
+  }
+}
+
+function showHelp(): void {
+  console.log("\n  REPL Commands:");
+  console.log("  /plan               Show plan | /plan new <desc> | /plan done");
+  console.log("  /grillme on/off     Toggle Grill Me tracking");
+  console.log("  /grillme strict|normal|loose — Set sensitivity");
+  console.log("  /git                Show current git status");
+  console.log("  /git health         Show branch health summary");
+  console.log("  /journal search <q> Search personal knowledge base");
+  console.log("  /remember <title>   Save current context");
+  console.log("  /memory             Memory stats | /memory search <q> | /memory list");
+  console.log("  /model              List / switch models");
+  console.log("  /help               Show this help");
+  console.log("  /exit, /quit        Exit");
+  console.log("  Ctrl+C              Exit");
+}
+
 // ---- Main ----
 
 function createRepl(
@@ -924,6 +994,14 @@ async function main(): Promise<void> {
   // Initialize embedding infrastructure (lazy download)
   initEmbeddings().catch(() => {});
 
+  // Backfill embeddings for any entities missing them
+  try {
+    const { embedAllEntities } = await import("../memory/vector-search.js");
+    const store = getMnemosyneStore();
+    const n = await embedAllEntities(store);
+    if (n > 0) console.log(`🔢 Generated embeddings for ${n} entities`);
+  } catch { /* best-effort */ }
+
   // Bootstrap memory seeder on first project open
   if (config.mnemosyne.bootstrap_on_first_open) {
     try {
@@ -931,6 +1009,11 @@ async function main(): Promise<void> {
       const seedResult = await bootstrapMemories(workdir, config.mnemosyne.bootstrap_max_files);
       if (seedResult.totalSeeded > 0) {
         console.log(`🌱 Seeded ${seedResult.totalSeeded} initial memories from project scan.`);
+        // Backfill embeddings for vector search
+        const { embedAllEntities } = await import("../memory/vector-search.js");
+        const store = getMnemosyneStore();
+        const n = await embedAllEntities(store);
+        if (n > 0) console.log(`🔢 Generated embeddings for ${n} entities`);
       }
     } catch { /* best-effort */ }
   }
@@ -1046,18 +1129,13 @@ async function main(): Promise<void> {
 
   // In interactive mode with no initial prompt, wait for the user's first real message
   if (interactive && !prompt && !continueSession && !resumeSession) {
-    // Don't render a fake user message — get real input from user first
-    effectivePrompt = await new Promise<string>((resolve) => {
-      rl!.question("\n▸ You: ", (answer) => {
-        const trimmed = answer.trim();
-        if (!trimmed) {
-          resolve("/exit"); // empty input → exit
-        } else {
-          resolve(trimmed);
-        }
-      });
-    });
+    effectivePrompt = await getFirstMessage(rl!, planManager, workdir, config);
     if (effectivePrompt === "/exit") {
+      console.log("Exiting...");
+      if (rl) rl.close();
+      process.exit(0);
+    }
+    if (!effectivePrompt) {
       console.log("Exiting...");
       if (rl) rl.close();
       process.exit(0);

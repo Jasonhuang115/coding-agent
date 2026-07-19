@@ -113,15 +113,17 @@ describe("Manual Memories", () => {
     expect(entity).not.toBeNull();
   });
 
-  it("unprotected old memories get pruned", () => {
-    store.upsertEntity("Old entity", "concept", "will be pruned", "s1", 0.5, "auto", 0);
+  it("unprotected old memories become dormant instead of being deleted", () => {
+    store.upsertEntity("Old entity", "concept", "will be archived", "s1", 0.5, "auto", 0);
 
     const db = (store as unknown as { db: { prepare: (sql: string) => { run: (...args: unknown[]) => void } } }).db;
     db.prepare("UPDATE entities SET updated_at = ? WHERE name = ?").run(0, "Old entity");
 
-    const deleted = store.pruneForgotten(1);
-    expect(deleted).toBe(1);
-    expect(store.findEntityByName("Old entity")).toBeNull();
+    const archived = store.pruneForgotten(1);
+    expect(archived).toBe(1);
+    expect(store.findEntityByName("Old entity")).toMatchObject({ status: "dormant" });
+    expect(store.searchEntities("archived", 10).map((entity) => entity.name)).toContain("Old entity");
+    expect(store.searchEntities("archived", 10, { statuses: ["active"] })).toHaveLength(0);
   });
 });
 
@@ -398,6 +400,29 @@ describe("Evaluator", () => {
 
     const report = evaluateMemory(id, store);
     expect(report!.score.dimensions.freshness).toBeLessThan(0.3);
+    expect(report!.decisions.shouldDormant).toBe(true);
+    expect(report!.recommendation).toBe("dormant");
+  });
+
+  it("never demotes protected memories", () => {
+    const id = store.addManualMemory("Keep this", "A long-lived personal rule", [], "s1", "note");
+    const db = (store as unknown as { db: { prepare: (sql: string) => { run: (...args: unknown[]) => void } } }).db;
+    db.prepare("UPDATE entities SET updated_at = ? WHERE id = ?").run(Date.now() - 180 * 24 * 60 * 60 * 1000, id);
+
+    const report = evaluateMemory(id, store);
+    expect(report!.decisions.shouldDormant).toBe(false);
+    expect(report!.decisions.shouldDeleteNoise).toBe(false);
+  });
+
+  it("only flags obvious low-confidence auto memories as deleteable noise", () => {
+    const id = store.upsertEntity("Transient note", "note", "todo", "s1", 0.2, "auto", 0);
+    const db = (store as unknown as { db: { prepare: (sql: string) => { run: (...args: unknown[]) => void } } }).db;
+    db.prepare("UPDATE entities SET updated_at = ? WHERE id = ?").run(Date.now() - 180 * 24 * 60 * 60 * 1000, id);
+
+    const report = evaluateMemory(id, store);
+    expect(report!.decisions.shouldDormant).toBe(true);
+    expect(report!.decisions.shouldDeleteNoise).toBe(true);
+    expect(report!.recommendation).toBe("delete_noise");
   });
 
   it("getInjectCandidates filters by threshold", () => {

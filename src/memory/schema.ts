@@ -1,25 +1,53 @@
-// Mnemosyne memory graph — Phase 1 scaffold, Phase 2 implementation
-// Phase 1: Schema definition only. No runtime operations.
+// Mnemosyne memory graph — shared public types.
+// Runtime storage is implemented by MnemosyneStore in store.ts.
+
+export type MemoryEntityType =
+  | "file"
+  | "function"
+  | "class"
+  | "concept"
+  | "config"
+  | "error"
+  | "deploy"
+  | "api"
+  | "dependency"
+  | "test"
+  | "note";
+
+export type MemoryRelationType =
+  | "DEPENDS_ON"
+  | "FIXED_BY"
+  | "RELATED_TO"
+  | "MENTIONED_IN"
+  | "IMPLEMENTS"
+  | "CONFIGURES"
+  | "TESTED_BY"
+  | "ALTERNATIVE_TO"
+  | "REPLACES"
+  | "CAUSES"
+  | "PREVENTS"
+  | "EXAMPLES";
+
+/** A memory's lifecycle state. Only active memories enter the default prompt. */
+export type MemoryStatus = "active" | "superseded" | "dormant" | "deprecated";
 
 export interface MemoryEntry {
   id?: number;
-  type: "fact" | "feedback" | "reference" | "project";
+  type: MemoryEntityType;
+  name?: string;
   content: string;
   source?: string;
   timestamp: number;
-  // embedding is stored separately
 }
 
 export interface MemoryEdge {
   id?: number;
   source_id: number;
   target_id: number;
-  relation: "relates_to" | "contradicts" | "extends" | "depends_on";
+  relation: MemoryRelationType;
   weight: number;
   timestamp: number;
 }
-
-// ---- Extension point: Phase 2 vector search ----
 
 export interface MemoryStore {
   addEntry(entry: MemoryEntry): Promise<number>;
@@ -28,25 +56,4 @@ export interface MemoryStore {
   searchByVector(vector: Float32Array, limit?: number): Promise<MemoryEntry[]>;
   getEdges(entryId: number): Promise<MemoryEdge[]>;
   getRelated(entryId: number, depth?: number): Promise<MemoryEntry[]>;
-}
-
-// Phase 1: no-op store
-// Phase 2: replaces this with MnemosyneStore
-const storePlaceholder: MemoryStore = {
-  async addEntry() { return -1; },
-  async addEdge() { return -1; },
-  async search() { return []; },
-  async searchByVector() { return []; },
-  async getEdges() { return []; },
-  async getRelated() { return []; },
-};
-
-let activeStore: MemoryStore = storePlaceholder;
-
-export function getMemoryStore(): MemoryStore {
-  return activeStore;
-}
-
-export function setMemoryStore(store: MemoryStore): void {
-  activeStore = store;
 }

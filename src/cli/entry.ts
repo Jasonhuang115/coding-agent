@@ -42,6 +42,7 @@ import { spawnSubagent } from "../agent/subagent.js";
 import type { AgentConfig, AgentContext } from "../shared/core-types.js";
 import { PolicyEngine } from "../permissions/policy.js";
 import { SessionManager } from "../runtime/session/manager.js";
+import type { MemoryEntityType } from "../memory/schema.js";
 
 // Register all tools
 register(readTool);
@@ -56,6 +57,20 @@ register(todoWriteTool);
 register(planTool);
 register(agentTool);
 register(skillTool);
+
+const MEMORY_TYPE_ICONS: Record<MemoryEntityType, string> = {
+  file: "📄",
+  function: "🔧",
+  class: "🏗️",
+  concept: "💡",
+  config: "⚙️",
+  error: "🐛",
+  deploy: "🚀",
+  api: "🔌",
+  dependency: "📦",
+  test: "✅",
+  note: "📝",
+};
 
 // ---- Argument parsing ----
 
@@ -352,7 +367,7 @@ async function handleMemoryCommand(input: string): Promise<void> {
       const label = showAll ? "全部记忆" : "对话记忆（不含自动扫描）";
       console.log(`\n  🧠 ${label}：`);
       for (const e of filtered.slice(0, 20)) {
-        const icon = { file: "📄", function: "🔧", concept: "💡", config: "⚙️", error: "🐛", note: "📝", test: "✅", api: "🔌" }[e.type] ?? "📌";
+        const icon = MEMORY_TYPE_ICONS[e.type];
         const source = e.source === "manual" ? " [手动]" : e.source === "extractor" ? " [对话提取]" : e.source === "seeder" ? " [自动扫描]" : "";
         console.log(`  ${icon} [${e.type}] ${e.name}${source}`);
         if (e.content) console.log(`     ${e.content.slice(0, 120)}`);
@@ -1040,7 +1055,7 @@ async function main(): Promise<void> {
     const store = getMnemosyneStore();
     const health = store.getHealthReport();
     const pending = health.pendingConsolidation > 0 ? ` | 待合并 ${health.pendingConsolidation}` : "";
-    console.log(`🧠 记忆健康: 活跃 ${health.active} | 过期 ${health.superseded} | 弃用 ${health.deprecated}${pending} | 向量 ${health.vectorReady ? "✅" : "⏳"}`);
+    console.log(`🧠 记忆健康: 活跃 ${health.active} | 过期 ${health.superseded} | 休眠 ${health.dormant} | 弃用 ${health.deprecated}${pending} | 向量 ${health.vectorReady ? "✅" : "⏳"}`);
   } catch { /* best-effort */ }
 
   // Bootstrap memory seeder on first project open

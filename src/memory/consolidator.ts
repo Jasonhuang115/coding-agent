@@ -1,13 +1,12 @@
 // Consolidator — background memory maintenance
-// Clusters similar memories, abstracts to principles, forgets low-score ones
-// Only forgets protected=0 memories
+// Clusters similar memories, abstracts to principles, and archives stale entries.
 
 import { getMnemosyneStore } from "./store.js";
 import type { EntityRow } from "./store.js";
 import { evaluateAll } from "./evaluator.js";
 
 export interface ConsolidationResult {
-  merged: number; abstracted: number; deprecated: number; deleted: number;
+  merged: number; abstracted: number; dormant: number; deleted: number;
   errors: string[];
 }
 
@@ -23,7 +22,7 @@ export function shouldConsolidate(): boolean {
 
 export async function consolidateMemories(): Promise<ConsolidationResult> {
   const store = getMnemosyneStore();
-  const result: ConsolidationResult = { merged: 0, abstracted: 0, deprecated: 0, deleted: 0, errors: [] };
+  const result: ConsolidationResult = { merged: 0, abstracted: 0, dormant: 0, deleted: 0, errors: [] };
   lastConsolidationTime = Date.now();
   sessionCount = 0;
 
@@ -43,16 +42,13 @@ export async function consolidateMemories(): Promise<ConsolidationResult> {
     // Merge duplicates
     result.merged = mergeDuplicates(store);
 
-    // Forget low-score unprotected
-    const forgettable = scored.filter((s) => s.recommendation === "forget");
-    for (const c of forgettable) {
-      const entity = store.getEntity(c.entityId);
-      if (entity && entity.protected === 0) {
-        result.deleted += store.pruneForgotten(60);
-      } else if (entity && entity.protected === 1) {
-        result.deprecated++;
-      }
+    // Old memories leave default retrieval first. Only clear auto-generated noise is deleted.
+    const noiseIds: number[] = [];
+    for (const candidate of scored) {
+      if (candidate.decisions.shouldDeleteNoise) noiseIds.push(candidate.entityId);
+      else if (candidate.decisions.shouldDormant && store.markDormant(candidate.entityId)) result.dormant++;
     }
+    result.deleted = store.deleteNoiseCandidates(noiseIds);
   } catch (err) {
     result.errors.push(`Consolidation failed: ${err}`);
   }

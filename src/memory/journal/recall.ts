@@ -3,6 +3,21 @@
 
 import { getMnemosyneStore } from "../store.js";
 import type { EntityRow } from "../store.js";
+import type { MemoryEntityType } from "../schema.js";
+
+const MEMORY_TYPE_ICONS: Record<MemoryEntityType, string> = {
+  file: "📄",
+  function: "🔧",
+  class: "🏗️",
+  concept: "📖",
+  config: "📝",
+  error: "🔧",
+  deploy: "🚀",
+  api: "🔌",
+  dependency: "📦",
+  test: "✅",
+  note: "📝",
+};
 
 export interface RecallResult {
   query: string; entries: EntityRow[]; summary: string; contextBlock: string | null;
@@ -44,7 +59,7 @@ function buildContextBlock(entries: EntityRow[]): string | null {
   if (entries.length === 0) return null;
   const lines = ["## 🧠 Mnemosyne 记忆图谱 — 相关知识", ""];
   for (const entry of entries) {
-    const icon = { config: "📝", error: "🔧", concept: "📖", dependency: "📦", api: "🔌", deploy: "🚀", test: "✅" }[entry.type] ?? "📌";
+    const icon = MEMORY_TYPE_ICONS[entry.type];
     const sourceTag = entry.source === "manual" ? " [📓 手动]" : entry.source === "memories_md" ? " [📓 MD]" : entry.source === "seeder" ? " [🌱]" : "";
     lines.push(`### ${icon} ${entry.name}${sourceTag}`);
     lines.push(`> ${entry.content.slice(0, 300)}`);

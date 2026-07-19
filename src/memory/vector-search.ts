@@ -1,6 +1,7 @@
 // Vector search — brute-force cosine similarity over entity embeddings
 import { cosineSimilarity } from "./embedding/setup.js";
 import type { MnemosyneStore, EntityRow } from "./store.js";
+import type { MemoryStatus } from "./schema.js";
 
 export interface VectorSearchResult { entity: EntityRow; similarity: number; }
 
@@ -14,11 +15,16 @@ export async function embedAndStore(store: MnemosyneStore, entityId: number, tex
   if (embedding) storeEmbedding(store, entityId, embedding);
 }
 
-export async function searchByVector(store: MnemosyneStore, queryEmbedding: Float32Array, limit = 10): Promise<VectorSearchResult[]> {
+export async function searchByVector(
+  store: MnemosyneStore,
+  queryEmbedding: Float32Array,
+  limit = 10,
+  statuses?: MemoryStatus[],
+): Promise<VectorSearchResult[]> {
   const results: VectorSearchResult[] = [];
   for (const { id } of store.getAllEntityIds(500)) {
     const entity = store.getEntity(id);
-    if (!entity || !entity.embedding) continue;
+    if (!entity || !entity.embedding || (statuses && !statuses.includes(entity.status))) continue;
     const entityEmbedding = new Float32Array(entity.embedding.buffer, entity.embedding.byteOffset, entity.embedding.byteLength / 4);
     const similarity = cosineSimilarity(queryEmbedding, entityEmbedding);
     if (similarity > 0.1) results.push({ entity, similarity });

@@ -1,5 +1,4 @@
-// Evaluator — multi-dimensional memory scoring engine
-// 5 dimensions: accuracy, freshness, relevance, conflict, frequency
+// Evaluator — multi-dimensional memory diagnostics and lifecycle decisions.
 
 import { getMnemosyneStore } from "./store.js";
 import type { MnemosyneStore, EntityRow } from "./store.js";
@@ -12,14 +11,20 @@ export interface MemoryScore {
 export interface ScoreReport {
   entityId: number; entityName: string;
   score: MemoryScore;
-  recommendation: "inject" | "hold" | "forget" | "upgrade";
+  decisions: {
+    shouldInject: boolean;
+    shouldPromote: boolean;
+    shouldDormant: boolean;
+    shouldDeleteNoise: boolean;
+  };
+  recommendation: "inject" | "hold" | "dormant" | "delete_noise" | "upgrade";
 }
 
 export const THRESHOLDS = {
   inject: 0.55,
-  forget: 0.15,
   upgrade: 0.85,
   upgradeMinAccesses: 10,
+  dormantAfterDays: 90,
 };
 
 export function evaluateMemory(entityId: number, store?: MnemosyneStore): ScoreReport | null {
@@ -46,12 +51,26 @@ export function evaluateMemory(entityId: number, store?: MnemosyneStore): ScoreR
 
   const score: MemoryScore = { total, dimensions: { accuracy, freshness, relevance, conflict, frequency, feedback: feedbackScore } };
 
-  let recommendation: ScoreReport["recommendation"] = "hold";
-  if (total >= THRESHOLDS.upgrade && feedback.injections >= THRESHOLDS.upgradeMinAccesses) recommendation = "upgrade";
-  else if (total >= THRESHOLDS.inject) recommendation = "inject";
-  else if (total < THRESHOLDS.forget && entity.protected === 0) recommendation = "forget";
+  const ageDays = (now - entity.updated_at) / (1000 * 60 * 60 * 24);
+  const isActive = entity.status === "active";
+  const shouldPromote = isActive && total >= THRESHOLDS.upgrade &&
+    feedback.injections >= THRESHOLDS.upgradeMinAccesses && feedback.references >= 3;
+  const shouldInject = isActive && total >= THRESHOLDS.inject;
+  const shouldDormant = isActive && entity.protected === 0 && ageDays >= THRESHOLDS.dormantAfterDays &&
+    entity.access_count === 0 && feedback.references === 0 && feedback.injections <= 1 && entity.feedback_score <= 0;
+  const shouldDeleteNoise = shouldDormant && (entity.source === "auto" || entity.source === "seeder") &&
+    entity.confidence <= 0.35 && isLowInformation(entity.content);
 
-  return { entityId: entity.id, entityName: entity.name, score, recommendation };
+  let recommendation: ScoreReport["recommendation"] = "hold";
+  if (shouldPromote) recommendation = "upgrade";
+  else if (shouldInject) recommendation = "inject";
+  else if (shouldDeleteNoise) recommendation = "delete_noise";
+  else if (shouldDormant) recommendation = "dormant";
+
+  return {
+    entityId: entity.id, entityName: entity.name, score, recommendation,
+    decisions: { shouldInject, shouldPromote, shouldDormant, shouldDeleteNoise },
+  };
 }
 
 export function evaluateAll(limit = 200, store?: MnemosyneStore): ScoreReport[] {
@@ -76,8 +95,13 @@ export function getInjectCandidates(query?: string, limit = 10, store?: Mnemosyn
   return candidates.slice(0, limit);
 }
 
+export function getDormantCandidates(limit = 20, store?: MnemosyneStore): ScoreReport[] {
+  return evaluateAll(100, store).filter((r) => r.decisions.shouldDormant).slice(0, limit);
+}
+
+/** @deprecated Use getDormantCandidates; this no longer means physical deletion. */
 export function getForgetCandidates(limit = 20, store?: MnemosyneStore): ScoreReport[] {
-  return evaluateAll(100, store).filter((r) => r.recommendation === "forget").slice(0, limit);
+  return getDormantCandidates(limit, store);
 }
 
 // ---- Dimension computations ----
@@ -114,4 +138,9 @@ function computeFrequency(feedback: { injections: number; successes: number; fai
 
 function clamp(value: number, min = 0, max = 1): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function isLowInformation(content: string): boolean {
+  const normalized = content.trim().toLowerCase();
+  return normalized.length < 40 || /^(todo|fix later|tbd|unknown|n\/a)[.! ]*$/.test(normalized);
 }

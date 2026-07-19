@@ -37,7 +37,7 @@ export async function hybridRetrieve(query: string, limit = 10): Promise<FusionS
   const fts5Start = Date.now();
   const fts5Results = new Map<number, { entity: EntityRow; rank: number }>();
   for (const q of allQueries) {
-    const results = store.searchEntities(q, limit * 2);
+    const results = store.searchEntities(q, limit * 2, { statuses: ["active"] });
     for (let i = 0; i < results.length; i++)
       if (!fts5Results.has(results[i].id) || fts5Results.get(results[i].id)!.rank > i)
         fts5Results.set(results[i].id, { entity: results[i], rank: i + 1 });
@@ -52,7 +52,7 @@ export async function hybridRetrieve(query: string, limit = 10): Promise<FusionS
     const embedding = await generate(query);
     if (embedding) {
       const { searchByVector } = await import("./vector-search.js");
-      const vecResults = await searchByVector(store, embedding, limit * 2);
+      const vecResults = await searchByVector(store, embedding, limit * 2, ["active"]);
       for (let i = 0; i < vecResults.length; i++)
         vectorResults.set(vecResults[i].entity.id, { entity: vecResults[i].entity, rank: i + 1, score: vecResults[i].similarity });
     }
@@ -68,7 +68,7 @@ export async function hybridRetrieve(query: string, limit = 10): Promise<FusionS
     seenGraph.add(entity.id);
     const neighbors = store.getNeighbors(entity.id, 0.3);
     for (let i = 0; i < neighbors.length; i++)
-      if (!seenGraph.has(neighbors[i].entity.id)) {
+      if (neighbors[i].entity.status === "active" && !seenGraph.has(neighbors[i].entity.id)) {
         seenGraph.add(neighbors[i].entity.id);
         graphResults.set(neighbors[i].entity.id, { entity: neighbors[i].entity, rank: i + 1 });
       }
@@ -96,9 +96,9 @@ export async function hybridRetrieve(query: string, limit = 10): Promise<FusionS
     const graphHit = graphResults.get(entityId);
     if (graphHit) { const s = wGraph / (RRF_K + graphHit.rank); rrfScore += s; sources.push("graph"); rankContributions.graph = { rank: graphHit.rank, score: s }; }
 
-    // Skip inactive entities (superseded/deprecated)
+    // The default prompt only receives active memories. Historical states remain searchable directly.
     const entity = fts5Hit?.entity ?? vecHit?.entity ?? graphHit!.entity;
-    if (entity && entity.status !== "superseded" && entity.status !== "deprecated") {
+    if (entity?.status === "active") {
       fused.push({ entity, score: rrfScore, sources, rankContributions });
     }
   }

@@ -6,7 +6,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
-import type { MemoryStore, MemoryEntry, MemoryEdge } from "./schema.js";
+import type { MemoryStore, MemoryEntry, MemoryEdge, MemoryEntityType, MemoryRelationType, MemoryStatus } from "./schema.js";
 import { generateSimpleEmbedding } from "./embedding/setup.js";
 
 const DECAY_RATE = 0.01;
@@ -14,7 +14,7 @@ const DECAY_THRESHOLD = 0.3;
 
 export interface EntityRow {
   id: number;
-  type: string;
+  type: MemoryEntityType;
   name: string;
   content: string;
   source_session: string;
@@ -25,7 +25,7 @@ export interface EntityRow {
   created_at: number;
   updated_at: number;
   embedding: Buffer | null; // 384-dim float32
-  status: string;           // 'active' | 'superseded' | 'deprecated'
+  status: MemoryStatus;
   superseded_by: number | null;
   abstracted_from: string;  // comma-separated IDs of source entities
   feedback_score: number;   // cumulative feedback signal
@@ -36,7 +36,7 @@ export interface RelationRow {
   id: number;
   source_id: number;
   target_id: number;
-  relation_type: string;
+  relation_type: MemoryRelationType;
   weight: number;
   evidence: string;
   created_at: number;
@@ -62,6 +62,10 @@ export interface FeedbackSignalRow {
   retrievalSource: string;
   scoreDelta: number;
   context: Record<string, unknown>;
+}
+
+export interface MemorySearchOptions {
+  statuses?: MemoryStatus[];
 }
 
 const STRATEGIES = ["fts5", "vector", "graph"] as const;
@@ -410,7 +414,7 @@ export class MnemosyneStore implements MemoryStore {
       .prepare(
         `SELECT e.* FROM entities e
          LEFT JOIN access_log a ON a.entity_id = e.id
-         WHERE e.updated_at < ?
+         WHERE e.updated_at < ? AND e.status = 'active'
          GROUP BY e.id
          HAVING COUNT(a.id) = 0 OR MAX(a.accessed_at) < ?
          ORDER BY e.updated_at ASC LIMIT 100`
@@ -423,30 +427,51 @@ export class MnemosyneStore implements MemoryStore {
     const candidates = this.getForgottenCandidates(olderThanDays);
     if (candidates.length === 0) return 0;
 
-    // NEVER delete protected entities
+    // Kept for compatibility: stale memory is archived, never deleted by age alone.
     const ids = candidates.filter((c) => c.protected === 0).map((c) => c.id);
     if (ids.length === 0) return 0;
 
     const placeholders = ids.map(() => "?").join(",");
-    this.db.prepare(`DELETE FROM access_log WHERE entity_id IN (${placeholders})`).run(...ids);
-    this.db.prepare(`DELETE FROM relations WHERE source_id IN (${placeholders}) OR target_id IN (${placeholders})`).run(...ids, ...ids);
-    const result = this.db.prepare(`DELETE FROM entities WHERE id IN (${placeholders})`).run(...ids);
+    const result = this.db.prepare(`UPDATE entities SET status = 'dormant' WHERE id IN (${placeholders}) AND protected = 0`).run(...ids);
+    return result.changes;
+  }
+
+  /** Move a low-value active memory out of default retrieval without losing it. */
+  markDormant(entityId: number): boolean {
+    const result = this.db.prepare(
+      `UPDATE entities SET status = 'dormant' WHERE id = ? AND status = 'active' AND protected = 0`
+    ).run(entityId);
+    return result.changes > 0;
+  }
+
+  /** Physical deletion is reserved for evaluator-confirmed, recoverable auto-generated noise. */
+  deleteNoiseCandidates(entityIds: number[]): number {
+    if (entityIds.length === 0) return 0;
+    const placeholders = entityIds.map(() => "?").join(",");
+    const result = this.db.prepare(
+      `DELETE FROM entities
+       WHERE id IN (${placeholders}) AND protected = 0 AND source IN ('auto', 'seeder')`
+    ).run(...entityIds);
     return result.changes;
   }
 
   // ---- Search ----
 
-  searchEntities(query: string, limit = 10): EntityRow[] {
+  searchEntities(query: string, limit = 10, options: MemorySearchOptions = {}): EntityRow[] {
+    const statuses = options.statuses;
+    const statusClause = statuses?.length ? ` AND e.status IN (${statuses.map(() => "?").join(",")})` : "";
+    const statusParams = statuses ?? [];
     try {
       const rows = this.db
-        .prepare(`SELECT e.* FROM entities e INNER JOIN entities_fts fts ON e.id = fts.rowid WHERE entities_fts MATCH ? ORDER BY rank LIMIT ?`)
-        .all(query, limit);
+        .prepare(`SELECT e.* FROM entities e INNER JOIN entities_fts fts ON e.id = fts.rowid WHERE entities_fts MATCH ?${statusClause} ORDER BY rank LIMIT ?`)
+        .all(query, ...statusParams, limit);
       return rows as EntityRow[];
     } catch {
       const like = `%${query}%`;
+      const fallbackStatusClause = statuses?.length ? ` AND status IN (${statuses.map(() => "?").join(",")})` : "";
       const rows = this.db
-        .prepare(`SELECT * FROM entities WHERE name LIKE ? OR content LIKE ? ORDER BY confidence DESC, updated_at DESC LIMIT ?`)
-        .all(like, like, limit);
+        .prepare(`SELECT * FROM entities WHERE (name LIKE ? OR content LIKE ?)${fallbackStatusClause} ORDER BY confidence DESC, updated_at DESC LIMIT ?`)
+        .all(like, like, ...statusParams, limit);
       return rows as EntityRow[];
     }
   }
@@ -622,11 +647,13 @@ export class MnemosyneStore implements MemoryStore {
     });
   }
 
-  getFeedbackStats(memoryId: number): { injections: number; successes: number; failures: number } {
+  getFeedbackStats(memoryId: number): { injections: number; references: number; ignored: number; successes: number; failures: number } {
     const injections = (this.db.prepare(`SELECT COUNT(*) as c FROM feedback_log WHERE memory_id = ? AND event_type = 'injected'`).get(memoryId) as { c: number }).c;
+    const references = (this.db.prepare(`SELECT COUNT(*) as c FROM feedback_log WHERE memory_id = ? AND event_type = 'referenced'`).get(memoryId) as { c: number }).c;
+    const ignored = (this.db.prepare(`SELECT COUNT(*) as c FROM feedback_log WHERE memory_id = ? AND event_type = 'ignored'`).get(memoryId) as { c: number }).c;
     const successes = (this.db.prepare(`SELECT COUNT(*) as c FROM feedback_log WHERE memory_id = ? AND event_type = 'tool_success'`).get(memoryId) as { c: number }).c;
     const failures = (this.db.prepare(`SELECT COUNT(*) as c FROM feedback_log WHERE memory_id = ? AND event_type = 'tool_failed'`).get(memoryId) as { c: number }).c;
-    return { injections, successes, failures };
+    return { injections, references, ignored, successes, failures };
   }
 
   // ---- Strategy Weights ----
@@ -761,13 +788,14 @@ export class MnemosyneStore implements MemoryStore {
 
   // ---- Memory Health ----
 
-  getHealthReport(): { active: number; superseded: number; deprecated: number; pendingConsolidation: number; vectorReady: boolean } {
+  getHealthReport(): { active: number; superseded: number; dormant: number; deprecated: number; pendingConsolidation: number; vectorReady: boolean } {
     const active = (this.db.prepare(`SELECT COUNT(*) as c FROM entities WHERE status = 'active'`).get() as { c: number }).c;
     const superseded = (this.db.prepare(`SELECT COUNT(*) as c FROM entities WHERE status = 'superseded'`).get() as { c: number }).c;
+    const dormant = (this.db.prepare(`SELECT COUNT(*) as c FROM entities WHERE status = 'dormant'`).get() as { c: number }).c;
     const deprecated = (this.db.prepare(`SELECT COUNT(*) as c FROM entities WHERE status = 'deprecated'`).get() as { c: number }).c;
     const pending = (this.db.prepare(`SELECT COUNT(*) as c FROM pending_consolidation WHERE trigger_count >= 3`).get() as { c: number }).c;
     const embeddedCount = (this.db.prepare(`SELECT COUNT(*) as c FROM entities WHERE embedding IS NOT NULL`).get() as { c: number }).c;
-    return { active, superseded, deprecated, pendingConsolidation: pending, vectorReady: embeddedCount > 0 };
+    return { active, superseded, dormant, deprecated, pendingConsolidation: pending, vectorReady: embeddedCount > 0 };
   }
 
   // ---- Query Rewrite Rules ----
@@ -856,31 +884,52 @@ export class MnemosyneStore implements MemoryStore {
 
   close(): void { this.db.close(); }
 
-  // ---- MemoryStore interface ----
+  // ---- Narrow compatibility API used by older memory callers ----
 
   async addEntry(entry: MemoryEntry): Promise<number> {
-    return this.upsertEntity(entry.content.slice(0, 100), entry.type as EntityRow["type"], entry.content, entry.source ?? "", 1.0);
+    return this.upsertEntity(entry.name ?? entry.content.slice(0, 100), entry.type, entry.content, entry.source ?? "", 1.0);
   }
 
   async addEdge(edge: MemoryEdge): Promise<number> {
-    return this.addRelation(edge.source_id, edge.target_id, edge.relation as RelationRow["relation_type"], edge.weight);
+    return this.addRelation(edge.source_id, edge.target_id, edge.relation, edge.weight);
   }
 
   async search(query: string, limit = 10): Promise<MemoryEntry[]> {
     const entities = this.searchWithRelevance(query, limit);
-    return entities.map(({ entity }) => ({ id: entity.id, type: entity.type as MemoryEntry["type"], content: `${entity.name}: ${entity.content}`, source: entity.source_session, timestamp: entity.updated_at }));
+    return entities.map(({ entity }) => ({
+      id: entity.id,
+      type: entity.type,
+      name: entity.name,
+      content: entity.content,
+      source: entity.source_session,
+      timestamp: entity.updated_at,
+    }));
   }
 
   async searchByVector(_vector: Float32Array, _limit = 10): Promise<MemoryEntry[]> { return []; }
 
   async getEdges(entryId: number): Promise<MemoryEdge[]> {
     const rels = this.getRelations(entryId);
-    return rels.map((r) => ({ id: r.id, source_id: r.source_id, target_id: r.target_id, relation: r.relation_type as MemoryEdge["relation"], weight: r.weight, timestamp: r.created_at }));
+    return rels.map((r) => ({
+      id: r.id,
+      source_id: r.source_id,
+      target_id: r.target_id,
+      relation: r.relation_type,
+      weight: r.weight,
+      timestamp: r.created_at,
+    }));
   }
 
   async getRelated(entryId: number, depth = 1): Promise<MemoryEntry[]> {
     const neighbors = this.getNeighbors(entryId);
-    return neighbors.map(({ entity }) => ({ id: entity.id, type: entity.type as MemoryEntry["type"], content: `${entity.name}: ${entity.content}`, source: entity.source_session, timestamp: entity.updated_at }));
+    return neighbors.map(({ entity }) => ({
+      id: entity.id,
+      type: entity.type,
+      name: entity.name,
+      content: entity.content,
+      source: entity.source_session,
+      timestamp: entity.updated_at,
+    }));
   }
 }
 

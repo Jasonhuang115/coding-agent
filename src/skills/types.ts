@@ -4,7 +4,7 @@
 //   Level 2: directory with SKILL.md + resources
 //   Level 3: TypeScript plugin with onLoad/onUnload hooks
 
-import type { SubagentDefinition, ToolDefinition, ContextSource } from "../shared/core-types.js";
+import type { ToolDefinition, ContextSource } from "../shared/core-types.js";
 
 // ---- Skill definition (superset of SubagentDefinition) ----
 

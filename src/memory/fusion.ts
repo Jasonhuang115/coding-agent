@@ -3,7 +3,7 @@
 
 import { getMnemosyneStore } from "./store.js";
 import type { EntityRow } from "./store.js";
-import { rewriteQuery, learnFromRetrieval } from "./rewriter.js";
+import { rewriteQuery } from "./rewriter.js";
 
 export interface FusionResult {
   entity: EntityRow; score: number; sources: string[];
@@ -113,12 +113,4 @@ export async function hybridRetrieve(query: string, limit = 10): Promise<FusionS
   }
 
   return { results: fused.slice(0, limit), query, variantsUsed: allQueries, strategyWeights: weightMap, timing };
-}
-
-export async function hybridSearch(query: string, limit = 10): Promise<EntityRow[]> {
-  return (await hybridRetrieve(query, limit)).results.map((r) => r.entity);
-}
-
-export function recordRetrievalFeedback(query: string, retrievedIds: number[], wasHelpful: boolean): void {
-  learnFromRetrieval(query, retrievedIds, wasHelpful);
 }

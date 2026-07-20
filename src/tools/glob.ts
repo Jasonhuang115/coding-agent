@@ -2,7 +2,8 @@
 
 import fs from "fs";
 import path from "path";
-import type { ToolDefinition, AgentContext } from "../shared/core-types.js";
+import type { ToolDefinition } from "../shared/core-types.js";
+import { resolveToolPath } from "./path-utils.js";
 
 const MAX_RESULTS = 500;
 
@@ -35,9 +36,7 @@ export const globTool: ToolDefinition = {
   isConcurrencySafe: true,
   async handler(input, ctx) {
     const pattern = input.pattern as string;
-    const searchPath = resolvePath(
-      (input.path as string) ?? ctx.workingDir ?? process.cwd()
-    );
+    const searchPath = resolveToolPath((input.path as string) ?? ".", ctx.workingDir);
     const maxResults = (input.max_results as number) ?? MAX_RESULTS;
 
     // Ensure the search path exists
@@ -151,9 +150,4 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}K`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}M`;
-}
-
-function resolvePath(filePath: string): string {
-  if (path.isAbsolute(filePath)) return path.normalize(filePath);
-  return path.resolve(process.cwd(), filePath);
 }

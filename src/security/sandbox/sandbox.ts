@@ -2,8 +2,6 @@
 // Every Tool must pass through a Sandbox for each I/O interaction.
 // Policy says WHAT is allowed; Sandbox enforces HOW it's safely executed.
 
-import type { ToolResult } from "../../shared/core-types.js";
-
 /** Risk level for a tool operation. */
 export type RiskLevel = "low" | "medium" | "high" | "critical";
 

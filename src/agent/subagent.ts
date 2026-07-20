@@ -5,7 +5,6 @@
 import { randomUUID } from "crypto";
 import path from "path";
 import fs from "fs";
-import { spawn } from "child_process";
 import type {
   SubagentDefinition,
   SubagentResult,
@@ -16,6 +15,7 @@ import type {
 import { getTool, getAllTools } from "../tools/registry.js";
 import { agentLoop } from "./loop.js";
 import { SessionStore } from "../runtime/session/storage.js";
+import { gitExec, isGitRepo } from "../tools/git/advisor.js";
 
 // ---- Built-in subagent definitions ----
 
@@ -385,20 +385,6 @@ export async function spawnSubagent(
 
 // ---- Worktree isolation ----
 
-async function execGit(args: string[], cwd: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn("git", args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
-    let stdout = "";
-    child.stdout?.on("data", (data: Buffer) => { stdout += data.toString(); });
-    child.on("close", (code) => { if (code === 0) resolve(stdout.trim()); else reject(new Error(`git ${args[0]} exited ${code}`)); });
-    child.on("error", reject);
-  });
-}
-
-async function isGitRepo(cwd: string): Promise<boolean> {
-  try { await execGit(["rev-parse", "--git-dir"], cwd); return true; } catch { return false; }
-}
-
 export async function spawnSubagentInWorktree(
   definition: SubagentDefinition, task: string,
   parentCtx: AgentContext, parentConfig: AgentConfig
@@ -408,7 +394,9 @@ export async function spawnSubagentInWorktree(
   let branchName: string;
 
   try {
-    if (!(await isGitRepo(parentCtx.workingDir))) return spawnSubagent(definition, task, parentCtx, parentConfig);
+    if (!(await isGitRepo(parentCtx.workingDir))) {
+      return { status: "failed", agentId, output: "Worktree isolation requires a Git repository.", usage: { inputTokens: 0, outputTokens: 0, toolCalls: 0 } };
+    }
 
     const worktreesDir = path.join(parentCtx.workingDir, ".claude", "worktrees");
     fs.mkdirSync(worktreesDir, { recursive: true });
@@ -416,24 +404,29 @@ export async function spawnSubagentInWorktree(
     worktreePath = path.join(worktreesDir, branchName);
 
     try {
-      await execGit(["checkout", "-b", branchName], parentCtx.workingDir);
-      await execGit(["worktree", "add", worktreePath, branchName], parentCtx.workingDir);
+      await gitExec(["checkout", "-b", branchName], parentCtx.workingDir);
+      await gitExec(["worktree", "add", worktreePath, branchName], parentCtx.workingDir);
     } catch {
-      try { await execGit(["worktree", "add", "--detach", worktreePath, "HEAD"], parentCtx.workingDir); branchName = "detached"; }
-      catch (err) { return spawnSubagent(definition, task, parentCtx, parentConfig); }
+      try { await gitExec(["worktree", "add", "--detach", worktreePath, "HEAD"], parentCtx.workingDir); branchName = "detached"; }
+      catch { return { status: "failed", agentId, output: "Unable to create an isolated Git worktree.", usage: { inputTokens: 0, outputTokens: 0, toolCalls: 0 } }; }
     }
   } catch {
-    return spawnSubagent(definition, task, parentCtx, parentConfig);
+    return { status: "failed", agentId, output: "Unable to initialize worktree isolation.", usage: { inputTokens: 0, outputTokens: 0, toolCalls: 0 } };
   }
 
   const isolatedCtx: AgentContext = { ...parentCtx, workingDir: worktreePath };
 
   try {
     const result = await spawnSubagent(definition, `${task}\n\n[Isolated worktree: ${worktreePath}]`, isolatedCtx, parentConfig);
-    try { await execGit(["worktree", "remove", worktreePath, "--force"], parentCtx.workingDir); if (branchName !== "detached") await execGit(["branch", "-D", branchName], parentCtx.workingDir).catch(() => {}); } catch { try { fs.rmSync(worktreePath, { recursive: true, force: true }); } catch { /* best-effort */ } }
+    try {
+      await gitExec(["worktree", "remove", worktreePath, "--force"], parentCtx.workingDir);
+      if (branchName !== "detached") await gitExec(["branch", "-D", branchName], parentCtx.workingDir).catch(() => undefined);
+    } catch {
+      try { fs.rmSync(worktreePath, { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
     return result;
   } catch (err) {
-    try { await execGit(["worktree", "remove", worktreePath, "--force"], parentCtx.workingDir); } catch { /* best-effort */ }
+    try { await gitExec(["worktree", "remove", worktreePath, "--force"], parentCtx.workingDir); } catch { /* best-effort */ }
     throw err;
   }
 }

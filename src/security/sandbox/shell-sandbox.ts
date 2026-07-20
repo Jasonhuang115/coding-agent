@@ -2,6 +2,7 @@
 // Detects dangerous metacharacters, command patterns, and enforces allowlists.
 
 import type { ISandbox, SandboxResult } from "./sandbox.js";
+import path from "path";
 
 /** Command patterns that are always denied regardless of workspace. */
 const DANGEROUS_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
@@ -31,6 +32,7 @@ const COMMAND_CATEGORIES: Record<string, { mode: "safe" | "modify" | "network" |
   head: { mode: "safe", command: /^head\b/ },
   tail: { mode: "safe", command: /^tail\b/ },
   find: { mode: "safe", command: /^find\b/ },
+  grep: { mode: "safe", command: /^grep\b/ },
   wc: { mode: "safe", command: /^wc\b/ },
   file: { mode: "safe", command: /^file\b/ },
   pwd: { mode: "safe", command: /^pwd$/ },
@@ -75,11 +77,19 @@ const COMMAND_CATEGORIES: Record<string, { mode: "safe" | "modify" | "network" |
 export class ShellSandbox implements ISandbox {
   readonly name = "shell-sandbox";
 
-  validate(toolName: string, input: Record<string, unknown>, _workingDir: string): SandboxResult {
+  validate(toolName: string, input: Record<string, unknown>, workingDir: string): SandboxResult {
     if (toolName !== "Bash") return { allowed: true };
 
     const command = (input.command as string)?.trim();
     if (!command) return { allowed: false, reason: "Empty command" };
+
+    const requestedWorkdir = input.workdir as string | undefined;
+    if (requestedWorkdir) {
+      const resolved = path.resolve(workingDir, requestedWorkdir);
+      if (resolved !== workingDir && !resolved.startsWith(`${workingDir}${path.sep}`)) {
+        return { allowed: false, reason: `Bash workdir must stay inside the workspace: "${requestedWorkdir}"` };
+      }
+    }
 
     // 1. Check dangerous patterns (hard blocklist)
     for (const { pattern, reason } of DANGEROUS_PATTERNS) {
@@ -88,11 +98,18 @@ export class ShellSandbox implements ISandbox {
       }
     }
 
-    // 2. Check command category
-    const category = this.categorize(command);
+    // 2. Shell substitutions can hide a second command from categorization.
+    if (/`|\$\(/.test(command)) {
+      return { allowed: false, reason: "Command substitution is not allowed in Bash commands." };
+    }
+
+    // Categorize every pipeline/chained segment, rather than trusting only the
+    // first command (for example `cat file | curl ...`).
+    const segments = command.split(/(?:&&|\|\||;|\|)/).map((segment) => segment.trim()).filter(Boolean);
+    const categories = segments.map((segment) => this.categorize(segment));
 
     // 3. Network commands — require WebFetch/WebSearch tool instead
-    if (category === "network") {
+    if (categories.includes("network")) {
       return {
         allowed: false,
         reason: `Network command blocked: "${command.slice(0, 80)}". Use WebFetch or WebSearch tool instead.`,
@@ -100,7 +117,7 @@ export class ShellSandbox implements ISandbox {
     }
 
     // 4. Blocked commands
-    if (category === "blocked") {
+    if (categories.includes("blocked")) {
       return { allowed: false, reason: `Command blocked by policy: "${command.slice(0, 80)}"` };
     }
 

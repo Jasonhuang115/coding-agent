@@ -33,7 +33,7 @@ const PRESERVED_ENV = [
 export class EnvSandbox implements ISandbox {
   readonly name = "env-sandbox";
 
-  validate(toolName: string, _input: Record<string, unknown>, _workingDir: string): SandboxResult {
+  validate(_toolName: string, _input: Record<string, unknown>, _workingDir: string): SandboxResult {
     // EnvSandbox doesn't block; it provides filtered env.
     // The actual filtering happens in filterEnv() called by Bash tool.
     return { allowed: true };

@@ -3,7 +3,7 @@
 
 import { PolicyEngine } from "./policy/engine.js";
 import type { AgentConfig } from "../shared/core-types.js";
-import type { SecurityDecision, SecurityVerdict, RiskLevel } from "./sandbox/sandbox.js";
+import type { SecurityDecision, RiskLevel } from "./sandbox/sandbox.js";
 import type { SandboxResult } from "./sandbox/sandbox.js";
 import { CompositeSandbox } from "./sandbox/composite.js";
 import { FsSandbox } from "./sandbox/fs-sandbox.js";

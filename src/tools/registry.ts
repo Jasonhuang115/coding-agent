@@ -1,8 +1,8 @@
 // Tool registry — manages tool definitions and dispatch
 
 import fs from "fs";
-import path from "path";
 import type { ToolDefinition, AgentContext, ToolResult } from "../shared/core-types.js";
+import { resolveToolPath } from "./path-utils.js";
 
 const tools = new Map<string, ToolDefinition>();
 
@@ -62,7 +62,7 @@ export function enforceReadGuard(
   ctx: AgentContext
 ): { allowed: false; reason: string } | { allowed: true } {
   // Normalize path for comparison
-  const normalized = normalizePath(filePath);
+  const normalized = resolveToolPath(filePath, ctx.workingDir);
 
   if (ctx.readGuard.hasRead(normalized)) {
     return { allowed: true };
@@ -82,9 +82,4 @@ export function enforceReadGuard(
     allowed: false,
     reason: `ReadGuard: file "${filePath}" has not been read in this session. Read the file first before writing or editing.`,
   };
-}
-
-function normalizePath(filePath: string): string {
-  if (path.isAbsolute(filePath)) return path.normalize(filePath);
-  return path.normalize(path.resolve(process.cwd(), filePath));
 }

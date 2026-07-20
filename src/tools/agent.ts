@@ -39,11 +39,6 @@ function formatCompletedResult(
   return lines.join("\n");
 }
 
-async function getAvailableTypes(): Promise<string> {
-  const defs = await getAllDefinitions();
-  return defs.map((d) => `"${d.name}"`).join(" | ");
-}
-
 export const agentTool: ToolDefinition = {
   name: "Agent",
   description:

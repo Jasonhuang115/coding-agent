@@ -3,16 +3,25 @@
 
 import { randomUUID } from "crypto";
 import path from "path";
-import fs from "fs";
 import * as readline from "readline";
-import YAML from "yaml";
-import type { ConfirmDecision, SessionMeta } from "../shared/core-types.js";
+import type { ConfirmDecision } from "../shared/core-types.js";
 import { loadConfig, loadEnvFiles } from "./config-loader.js";
+import { parseArgs, loadMcpConfigs } from "./options.js";
+import {
+  handleGitCommand,
+  handleJournalCommand,
+  handleMemoryCommand,
+  handleModelCommand,
+  handleSessionsCommand,
+  handleSkillCommand,
+  handlePlanCommand,
+  handleGrillMeCommand,
+} from "./command-handlers.js";
 import { AnsiStreamRenderer } from "./stream-renderer.js";
 import { agentLoop, abortCurrentRequest } from "../agent/loop.js";
 import {
   register,
-  getTool,
+  unregister,
   getAllTools,
 } from "../tools/registry.js";
 import { bashTool } from "../tools/bash.js";
@@ -27,22 +36,15 @@ import { planTool } from "../tools/plan.js";
 import { agentTool } from "../tools/agent.js";
 import { skillTool } from "../tools/skill.js";
 import { PlanManager } from "../agent/planner/manager.js";
-import { getJournalStore } from "../memory/journal/store.js";
 import { getMnemosyneStore } from "../memory/store.js";
 import { initCustomDefinitions } from "../agent/agent-defs.js";
-import { getGitState, getCurrentBranch } from "../tools/git/advisor.js";
-import { getBranchHealth } from "../tools/git/branch-health.js";
 import { McpClient } from "../tools/mcp/client.js";
-import { connectMcpServer, adaptMcpTool } from "../tools/mcp/adapter.js";
-import type { McpServerConfig } from "../tools/mcp/types.js";
+import { connectMcpServer, disconnectMcpServer } from "../tools/mcp/adapter.js";
 import { loadAllSkills } from "../skills/loader.js";
 import { getSkillRegistry } from "../skills/registry.js";
-import type { SkillDefinition } from "../skills/types.js";
-import { spawnSubagent } from "../agent/subagent.js";
-import type { AgentConfig, AgentContext } from "../shared/core-types.js";
-import { PolicyEngine } from "../permissions/policy.js";
+import type { AgentConfig } from "../shared/core-types.js";
+import { warnRecoverable } from "../shared/diagnostics.js";
 import { SessionManager } from "../runtime/session/manager.js";
-import type { MemoryEntityType } from "../memory/schema.js";
 
 // Register all tools
 register(readTool);
@@ -57,546 +59,6 @@ register(todoWriteTool);
 register(planTool);
 register(agentTool);
 register(skillTool);
-
-const MEMORY_TYPE_ICONS: Record<MemoryEntityType, string> = {
-  file: "📄",
-  function: "🔧",
-  class: "🏗️",
-  concept: "💡",
-  config: "⚙️",
-  error: "🐛",
-  deploy: "🚀",
-  api: "🔌",
-  dependency: "📦",
-  test: "✅",
-  note: "📝",
-};
-
-// ---- Argument parsing ----
-
-function parseArgs(): {
-  prompt: string;
-  workdir: string;
-  model?: string;
-  provider?: string;
-  interactive: boolean;
-  continueSession: boolean;
-  resumeSession?: string;
-} {
-  const args = process.argv.slice(2);
-  let workdir = process.cwd();
-  let model: string | undefined;
-  let provider: string | undefined;
-  let interactive = true;   // default: interactive
-  let oneShot = false;
-  let continueSession = false;
-  let resumeSession: string | undefined;
-  const positional: string[] = [];
-
-  for (let i = 0; i < args.length; i++) {
-    switch (args[i]) {
-      case "-d":
-      case "--dir":
-        workdir = path.resolve(args[++i] ?? workdir);
-        break;
-      case "-m":
-      case "--model":
-        model = args[++i];
-        break;
-      case "-p":
-      case "--provider":
-        provider = args[++i];
-        break;
-      case "-n":
-      case "--one-shot":
-        oneShot = true;
-        interactive = false;
-        break;
-      case "-c":
-      case "--continue":
-        continueSession = true;
-        break;
-      case "-r":
-      case "--resume":
-        resumeSession = args[++i] ?? "";
-        break;
-      case "-h":
-      case "--help":
-        printHelp();
-        process.exit(0);
-      default:
-        if (!args[i].startsWith("-")) {
-          positional.push(args[i]);
-        }
-    }
-  }
-
-  const prompt = positional.join(" ") || getStdinPrompt();
-
-  // Pipe input → one-shot (can't do REPL over pipe)
-  if (!process.stdin.isTTY) {
-    interactive = false;
-  }
-
-  // Explicit -n overrides
-  if (oneShot) {
-    interactive = false;
-  }
-
-  return { prompt, workdir, model, provider, interactive, continueSession, resumeSession };
-}
-
-function getStdinPrompt(): string {
-  // Check if there's piped input
-  try {
-    const { stdin } = process;
-    if (!stdin.isTTY) {
-      // Synchronous read for piped content
-      
-      const fd = fs.openSync("/dev/stdin", "r");
-      const buffer = Buffer.alloc(1024 * 1024); // 1MB max
-      const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
-      fs.closeSync(fd);
-      if (bytesRead > 0) {
-        return buffer.toString("utf-8", 0, bytesRead).trim();
-      }
-    }
-  } catch {
-    // Not available
-  }
-  return "";
-}
-
-function printHelp(): void {
-  console.log(`
-rubato — elastic tempo for your code
-
-Usage:
-  rubato [options] [prompt]       Interactive by default (REPL after answer)
-  rubato -n [prompt]              One-shot: answer and exit
-  echo "your prompt" | rubato -n [options]
-
-Options:
-  -d, --dir <path>    Working directory (default: current directory)
-  -m, --model <name>  Model override (e.g. "deepseek-chat", "claude-sonnet-4-20250514")
-  -p, --provider <n>  Provider override (e.g. "deepseek", "openai", "anthropic")
-  -c, --continue      Resume the most recent session in this project
-  -r, --resume [id]   Resume a specific session by ID (or show picker)
-  -n, --one-shot      Run once and exit (no REPL)
-  -h, --help          Show this help
-
-API Keys:
-  Set API keys in .env, .env.local (working dir or ~/.rubato/).
-  Shell environment variables override .env files.
-  Supported: DEEPSEEK_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY
-
-REPL Commands:
-  /exit, /quit         Exit the chat
-  /clear               Start a fresh session (saves current)
-  /sessions            List project sessions
-  /sessions resume <n> Resume a past session
-  /help                Show REPL help
-  Ctrl+C               Interrupt output / Exit when idle
-
-Config:
-  Place .rubato.yml in your project root or ~/.rubato/config.yml
-`);
-}
-
-// ---- MCP Config Loader ----
-
-function loadMcpConfigs(workingDir: string): McpServerConfig[] {
-  const configs: McpServerConfig[] = [];
-  const paths = [
-    path.join(workingDir, ".agent", "mcp.json"),
-    path.join(process.env.HOME ?? "/tmp", ".rubato", "mcp.json"),
-  ];
-
-  for (const p of paths) {
-    try {
-      if (fs.existsSync(p)) {
-        const raw = JSON.parse(fs.readFileSync(p, "utf-8"));
-        const servers = (raw.servers ?? raw) as McpServerConfig[] | Record<string, Omit<McpServerConfig, "name">>;
-        if (Array.isArray(servers)) {
-          configs.push(...servers);
-        } else {
-          for (const [name, cfg] of Object.entries(servers)) {
-            configs.push({ name, ...cfg });
-          }
-        }
-      }
-    } catch {
-      // Invalid JSON or missing file — skip
-    }
-  }
-
-  return configs;
-}
-
-// ---- Git command handler ----
-
-async function handleGitCommand(input: string, workdir: string): Promise<void> {
-  const args = input.split(/\s+/).slice(1);
-
-  if (args.length === 0 || args[0] === "status") {
-    const state = await getGitState(workdir);
-    if (!state) {
-      console.log("\n  当前目录不是 Git 仓库。");
-      return;
-    }
-    console.log(`\n  🌿 分支：${state.branch}`);
-    console.log(`  远程：领先 ${state.aheadOfRemote} | 落后 ${state.behindRemote}`);
-    console.log(`  变更文件：${state.changedFiles.length > 0 ? state.changedFiles.join(", ") : "(干净)"}`);
-    if (state.recentCommits.length > 0) {
-      console.log(`  最近提交：${state.recentCommits[0].hash} ${state.recentCommits[0].message}`);
-    }
-    return;
-  }
-
-  if (args[0] === "health") {
-    const health = await getBranchHealth(workdir);
-    if (!health) {
-      console.log("\n  无法获取分支健康状态。");
-      return;
-    }
-    console.log(`\n  🌿 默认分支：${health.defaultBranch} | 当前：${health.currentBranch}`);
-    console.log(`  总体状态：${health.overallStatus}`);
-    for (const b of health.branches.slice(0, 5)) {
-      const icon = b.status === "healthy" ? "✅" : b.status === "stale" ? "⏰" : "⚠️";
-      console.log(`  ${icon} ${b.branch} — ${b.recommendation}`);
-    }
-    return;
-  }
-
-  console.log("\n  用法：/git、/git status、/git health");
-}
-
-// ---- Journal command handler (now backed by unified Mnemosyne) ----
-
-async function handleJournalCommand(input: string, workdir: string): Promise<void> {
-  const args = input.split(/\s+/).slice(1);
-  const store = getMnemosyneStore();
-
-  if (input.startsWith("/remember")) {
-    const title = args.join(" ") || "Untitled";
-    store.addManualMemory(title, `Manual save from session at ${workdir}.`, [], "manual", "note");
-    console.log(`\n  📓 已保存到统一记忆图谱：「${title}」(protected)`);
-    return;
-  }
-
-  if (args.length === 0 || args[0] === "recent") {
-    const recent = store.getManualMemories(10);
-    if (recent.length === 0) {
-      console.log("\n  📓 知识库为空。用 /remember <标题> 保存第一条知识！");
-      return;
-    }
-    console.log("\n  📓 个人知识（统一记忆图谱）：");
-    for (const entry of recent) {
-      const icon = entry.type === "error" ? "🔧" : entry.type === "concept" ? "💡" : "📝";
-      const tags = entry.tags ? entry.tags.split(",").filter(Boolean) : [];
-      console.log(`  ${icon} ${entry.name} (${tags.join(", ") || "无标签"}) [protected]`);
-    }
-    return;
-  }
-
-  if (args[0] === "search") {
-    const query = args.slice(1).join(" ");
-    if (!query) { console.log("\n  用法：/journal search <关键词>"); return; }
-    const results = store.searchWithRelevance(query, 5);
-    if (results.length === 0) { console.log(`\n  未找到与「${query}」相关的记忆。`); return; }
-    console.log(`\n  搜索「${query}」结果：`);
-    for (const { entity, relevance } of results) {
-      const sourceLabel = entity.source === "manual" ? "[手动]" : entity.source === "memories_md" ? "[MD]" : "[自动]";
-      console.log(`  - ${sourceLabel} [${entity.type}] ${entity.name} (相关度: ${relevance.toFixed(2)})`);
-      if (entity.content) console.log(`    ${entity.content.slice(0, 100)}...`);
-    }
-    return;
-  }
-
-  if (args[0] === "stats") {
-    const stats = store.getStats();
-    console.log(`\n  📓 统一记忆图谱统计：`);
-    console.log(`  总实体：${stats.entities} | 关系：${stats.relations} | 手动知识：${stats.manualMemories}`);
-    return;
-  }
-
-  console.log("\n  用法：/journal、/journal search <q>、/journal stats、/journal recent");
-}
-
-// ---- Memory command handler ----
-
-async function handleMemoryCommand(input: string): Promise<void> {
-  const args = input.split(/\s+/).slice(1);
-  try {
-    const store = getMnemosyneStore();
-    const stats = store.getStats();
-
-    if (args[0] === "stats" || args.length === 0) {
-      console.log(`\n  🧠 Mnemosyne 统一记忆图谱：`);
-      console.log(`  实体：${stats.entities} | 关系：${stats.relations} | 访问记录：${stats.accessLogs}`);
-      console.log(`  手动知识：${stats.manualMemories} (protected)`);
-      console.log(`  存储路径：~/.rubato/mnemosyne/memory.db`);
-      return;
-    }
-
-    if (args[0] === "search") {
-      const query = args.slice(1).join(" ");
-      if (!query) { console.log("\n  用法：/memory search <关键词>"); return; }
-      const results = store.searchWithRelevance(query, 5);
-      if (results.length === 0) { console.log(`\n  未找到与「${query}」相关的实体。`); return; }
-      console.log(`\n  搜索「${query}」结果：`);
-      for (const { entity, relevance } of results) {
-        console.log(`  - [${entity.type}] ${entity.name} (相关度: ${relevance.toFixed(2)})`);
-        if (entity.content) console.log(`    ${entity.content.slice(0, 120)}`);
-      }
-      return;
-    }
-
-    if (args[0] === "list") {
-      const showAll = args[1] === "all";
-      const recent = store.getRecentEntities(50);
-      // Filter: by default hide auto-seeded project scans
-      const filtered = showAll ? recent : recent.filter((e) =>
-        !e.name.includes("/languages") && !e.name.includes("/structure") &&
-        e.source !== "seeder" && e.type !== "concept"
-      );
-      if (filtered.length === 0) {
-        console.log("\n  📭 暂无对话中积累的记忆。用 /memory list all 查看全部（含自动扫描）。");
-        return;
-      }
-      const label = showAll ? "全部记忆" : "对话记忆（不含自动扫描）";
-      console.log(`\n  🧠 ${label}：`);
-      for (const e of filtered.slice(0, 20)) {
-        const icon = MEMORY_TYPE_ICONS[e.type];
-        const source = e.source === "manual" ? " [手动]" : e.source === "extractor" ? " [对话提取]" : e.source === "seeder" ? " [自动扫描]" : "";
-        console.log(`  ${icon} [${e.type}] ${e.name}${source}`);
-        if (e.content) console.log(`     ${e.content.slice(0, 120)}`);
-      }
-      return;
-    }
-  } catch {
-    console.log("\n  记忆系统未初始化或不可用。");
-    return;
-  }
-  console.log("\n  用法：/memory、/memory stats、/memory search <q>、/memory list");
-}
-
-// ---- Model command handler ----
-
-function saveModelPreference(provider: string, model: string): void {
-  const dir = path.join(process.env.HOME ?? "/tmp", ".rubato");
-  fs.mkdirSync(dir, { recursive: true });
-  const configPath = path.join(dir, "config.yml");
-  let existing: Record<string, unknown> = {};
-  try {
-    if (fs.existsSync(configPath)) {
-      existing = YAML.parse(fs.readFileSync(configPath, "utf-8")) ?? {};
-    }
-  } catch { /* overwrite if corrupt */ }
-  existing.model = { ...(existing.model as Record<string, unknown> ?? {}), provider, model };
-  fs.writeFileSync(configPath, YAML.stringify(existing), "utf-8");
-}
-
-function handleModelCommand(
-  input: string,
-  config: { model: { provider: string; model: string } }
-): void {
-  const args = input.split(/\s+/).slice(1);
-
-  if (args.length === 0) {
-    console.log(`\n  Current: ${config.model.provider}/${config.model.model}`);
-    console.log(`  Type /model <name> to switch  (e.g. /model deepseek-chat)`);
-    return;
-  }
-
-  const target = args[0];
-  const targetLower = target.toLowerCase();
-
-  // Try to guess provider from model name
-  let provider = config.model.provider; // keep current by default
-  if (targetLower.includes("claude") || targetLower.includes("anthropic")) provider = "anthropic";
-  else if (targetLower.includes("gpt") || targetLower.includes("openai")) provider = "openai";
-  else if (targetLower.includes("deepseek")) provider = "deepseek";
-  else if (targetLower.includes("llama") || targetLower.includes("mixtral")) provider = "groq";
-
-  config.model.provider = provider;
-  config.model.model = target;
-  saveModelPreference(provider, target);
-  console.log(`\n  Switched to ${provider}/${target}  (takes effect on next message)`);
-}
-
-// ---- Sessions command handler ----
-
-interface SessionsCommandResult {
-  restartLoop: boolean;
-  resumeId?: string;
-}
-
-function handleSessionsCommand(
-  input: string,
-  sessionManager: SessionManager,
-): SessionsCommandResult {
-  const args = input.split(/\s+/).slice(1);
-
-  if (args.length === 0 || args[0] === "list") {
-    const sessions = sessionManager.listSessions();
-    if (sessions.length === 0) {
-      console.log("\n  No sessions found for this project.");
-      return { restartLoop: false };
-    }
-    console.log("\n  ── Sessions ──");
-    console.log("  #   | When                | Status  | Model         | First message");
-    console.log("  ----|---------------------|---------|---------------|--------------");
-    sessions.forEach((s, i) => {
-      const when = new Date(s.createdAt).toLocaleString().slice(0, 19);
-      const status = s.status === "active" ? "\x1b[32mactive\x1b[0m" : "\x1b[90mended\x1b[0m";
-      const model = s.model.slice(0, 13).padEnd(13);
-      const msg = (s.firstMessage ?? "").slice(0, 50);
-      const idx = String(i).padEnd(3);
-      const tokenStr = s.tokenCount > 0 ? `\x1b[90m${Math.round(s.tokenCount / 1000)}k\x1b[0m` : "";
-      console.log(`  ${idx} | ${when} | ${status}   | ${model} | ${msg} ${tokenStr}`);
-    });
-    console.log(`\n  /sessions resume <#> or <id-prefix> to resume`);
-    return { restartLoop: false };
-  }
-
-  if (args[0] === "resume") {
-    const target = args[1];
-    if (!target) {
-      console.log("\n  Usage: /sessions resume <#> or /sessions resume <id-prefix>");
-      return { restartLoop: false };
-    }
-
-    const sessions = sessionManager.listSessions();
-
-    // Try numeric index first
-    const numIndex = parseInt(target, 10);
-    if (!isNaN(numIndex) && numIndex >= 0 && numIndex < sessions.length) {
-      return { restartLoop: true, resumeId: sessions[numIndex].id };
-    }
-
-    // Try ID prefix match
-    const matches = sessions.filter((s) => s.id.startsWith(target));
-    if (matches.length === 1) {
-      return { restartLoop: true, resumeId: matches[0].id };
-    } else if (matches.length > 1) {
-      console.log("\n  Multiple sessions match. Be more specific:");
-      matches.forEach((s) => console.log(`    ${s.id} — ${s.firstMessage?.slice(0, 60)}`));
-      return { restartLoop: false };
-    }
-
-    console.log(`\n  No session found matching "${target}".`);
-    return { restartLoop: false };
-  }
-
-  console.log("\n  Usage: /sessions, /sessions resume <#|id-prefix>");
-  return { restartLoop: false };
-}
-
-// ---- Skill command handler ----
-
-/**
- * Handle a /skill-name command from the REPL.
- * Returns:
- *   - string: pass this as user input to the model (inline mode, or passthrough)
- *   - null/undefined: already handled, recurse REPL (fork mode)
- */
-async function handleSkillCommand(
-  input: string,
-  workdir: string,
-  config: AgentConfig
-): Promise<string | null> {
-  const parts = input.split(/\s+/);
-  const cmdName = parts[0].slice(1); // strip leading "/"
-  const args = parts.slice(1).join(" ");
-
-  const registry = getSkillRegistry();
-  const skill = registry.getSkill(cmdName);
-
-  if (!skill) {
-    console.log(`\n  Unknown skill: /${cmdName}`);
-    return null; // recurse REPL
-  }
-
-  const context = skill.context ?? "inline";
-
-  if (context === "inline") {
-    // Inline skills: pass through to the model.
-    // The skill's instructions are already in the system prompt catalog.
-    // We just forward the user's message so the model can apply the skill.
-    if (args) {
-      console.log(`\n  📋 Skill "${skill.name}" — passing to model...`);
-    }
-    // Return the input without the leading slash prefix, so the model sees
-    // the intent naturally: "/code-review src/auth.ts" → "code-review src/auth.ts"
-    return args || skill.name;
-  }
-
-  // Fork mode: spawn a subagent directly from the REPL
-  console.log(`\n  🔧 Running skill "${skill.name}"...`);
-
-  // Build a minimal subagent definition from the skill
-  const subagentDef = {
-    name: skill.name,
-    description: skill.description ?? `Run the "${skill.name}" skill`,
-    systemPrompt:
-      skill.systemPrompt ??
-      `You are the "${skill.name}" skill. ${skill.description ?? ""}`,
-    tools: skill.tools ?? ["Read", "Grep", "Glob", "Bash"],
-    model: skill.model ?? "inherit",
-    readonly: true,
-    maxTurns: skill.maxTurns ?? 15,
-  };
-
-  // Build permissions with allowed-tools pre-authorized
-  const permissions = { ...config.permissions };
-  if (skill.allowedTools && skill.allowedTools.length > 0) {
-    const allowRules = skill.allowedTools.map((pattern) => ({
-      tool: "*" as const,
-      pattern,
-      action: "allow" as const,
-      reason: `Skill "${skill.name}" pre-authorization`,
-    }));
-    permissions.rules = [...(permissions.rules ?? []), ...allowRules];
-  }
-
-  // Build a minimal agent context with allowed-tools permissions
-  const minimalCtx: AgentContext = {
-    workingDir: workdir,
-    sessionId: `skill-${cmdName}-${Date.now()}`,
-    readGuard: {
-      hasRead: () => false,
-      markAsRead: () => {},
-      serialize: () => ({ files: {} }),
-    },
-    permissionManager: new PolicyEngine(permissions),
-    config: { ...config, permissions },
-    depth: 0,
-  };
-
-  try {
-    const result = await spawnSubagent(
-      subagentDef,
-      args || `Run the "${skill.name}" skill`,
-      minimalCtx,
-      { ...config, permissions }
-    );
-
-    console.log(`\n  ── ${skill.name} output ──`);
-    console.log(result.output || "(no output)");
-    if (result.usage.toolCalls > 0) {
-      console.log(
-        `  [${result.status}] ${result.usage.inputTokens} in / ${result.usage.outputTokens} out / ${result.usage.toolCalls} tools`
-      );
-    }
-  } catch (err) {
-    console.log(
-      `\n  ✖ Skill "${skill.name}" failed: ${err instanceof Error ? err.message : err}`
-    );
-  }
-
-  return null; // recurse REPL after fork-mode skill completes
-}
 
 // ---- Tab completion & / menu ----
 
@@ -872,84 +334,6 @@ function createRepl(
   };
 }
 
-function handlePlanCommand(input: string, pm: PlanManager): void {
-  const args = input.split(/\s+/).slice(1);
-
-  if (args.length === 0 || args[0] === "show") {
-    console.log("\n" + pm.showPlan());
-    return;
-  }
-
-  if (args[0] === "list") {
-    const plans = pm.listPlans();
-    if (plans.length === 0) {
-      console.log("\n  没有保存的计划。");
-    } else {
-      console.log("\n  已保存的计划：");
-      plans.forEach((p) => console.log(`    - ${p}`));
-    }
-    return;
-  }
-
-  if (args[0] === "new") {
-    const desc = args.slice(1).join(" ");
-    if (!desc) {
-      console.log("\n  用法：/plan new <任务描述>");
-      return;
-    }
-    pm.startRequirementsGathering(desc);
-    console.log(`\n  🔍 需求澄清模式：对「${desc}」开始收集信息。`);
-    console.log("  请直接向 AI 描述你的需求，AI 会逐步追问。");
-    console.log("  输入 '你先按默认方案来' 可跳过剩余问题。");
-    return;
-  }
-
-  if (args[0] === "done") {
-    const plan = pm.getActivePlan();
-    if (!plan) {
-      console.log("\n  没有活跃计划。");
-      return;
-    }
-    // Mark plan as done
-    plan.status = "done";
-    pm.savePlan();
-    console.log(`\n  ✅ 计划「${plan.title}」已标记为完成。`);
-    return;
-  }
-
-  console.log("\n  未知的 plan 子命令。试试 /plan、/plan new、/plan list、/plan done");
-}
-
-function handleGrillMeCommand(input: string, pm: PlanManager): void {
-  const args = input.split(/\s+/).slice(1);
-
-  if (args.length === 0 || args[0] === "status") {
-    const cfg = pm.getGrillMeConfig();
-    console.log(`\n  Grill Me: ${cfg.enabled ? "🟢 ON" : "🔴 OFF"} | 灵敏度: ${cfg.sensitivity}`);
-    return;
-  }
-
-  if (args[0] === "on") {
-    pm.setGrillMeSensitivity("normal");
-    console.log("\n  🟢 Grill Me 已开启（灵敏度：normal）");
-    return;
-  }
-
-  if (args[0] === "off") {
-    pm.toggleGrillMe();
-    console.log("\n  🔴 Grill Me 已关闭");
-    return;
-  }
-
-  if (["strict", "normal", "loose"].includes(args[0])) {
-    pm.setGrillMeSensitivity(args[0] as "strict" | "normal" | "loose");
-    console.log(`\n  Grill Me 灵敏度已设为：${args[0]}`);
-    return;
-  }
-
-  console.log("\n  用法：/grillme on|off|strict|normal|loose|status");
-}
-
 // ---- Permission confirmation prompt ----
 
 /**
@@ -1036,19 +420,19 @@ async function main(): Promise<void> {
     if (migrated > 0) {
       console.log(`📓 已将 ${migrated} 条旧知识迁移到统一记忆图谱。`);
     }
-  } catch { /* Migration is best-effort */ }
+  } catch (error) { warnRecoverable(`memory:${workdir}:journal-migration`, error); }
 
   // Initialize custom agent definitions
-  try { initCustomDefinitions(workdir); } catch { /* optional */ }
+  try { initCustomDefinitions(workdir); } catch (error) { warnRecoverable(`agents:${workdir}:load`, error); }
   // Load skills from .rubato/skills/
-  try { loadAllSkills(workdir); } catch { /* optional */ }
+  try { loadAllSkills(workdir); } catch (error) { warnRecoverable(`skills:${workdir}:load`, error); }
   // Backfill embeddings for any entities missing them
   try {
     const { embedAllEntities } = await import("../memory/vector-search.js");
     const store = getMnemosyneStore();
     const n = await embedAllEntities(store);
     if (n > 0) console.log(`🔢 Generated embeddings for ${n} entities`);
-  } catch { /* best-effort */ }
+  } catch (error) { warnRecoverable(`memory:${workdir}:embedding-backfill`, error); }
 
   // Memory health report
   try {
@@ -1056,7 +440,7 @@ async function main(): Promise<void> {
     const health = store.getHealthReport();
     const pending = health.pendingConsolidation > 0 ? ` | 待合并 ${health.pendingConsolidation}` : "";
     console.log(`🧠 记忆健康: 活跃 ${health.active} | 过期 ${health.superseded} | 休眠 ${health.dormant} | 弃用 ${health.deprecated}${pending} | 向量 ${health.vectorReady ? "✅" : "⏳"}`);
-  } catch { /* best-effort */ }
+  } catch (error) { warnRecoverable(`memory:${workdir}:health-report`, error); }
 
   // Bootstrap memory seeder on first project open
   if (config.mnemosyne.bootstrap_on_first_open) {
@@ -1071,7 +455,7 @@ async function main(): Promise<void> {
         const n = await embedAllEntities(store);
         if (n > 0) console.log(`🔢 Generated embeddings for ${n} entities`);
       }
-    } catch { /* best-effort */ }
+    } catch (error) { warnRecoverable(`memory:${workdir}:bootstrap`, error); }
   }
 
   // Load and display active plan
@@ -1086,15 +470,9 @@ async function main(): Promise<void> {
   for (const cfg of mcpConfigs) {
     try {
       const client = new McpClient(cfg);
-      const toolNames = await connectMcpServer(client, cfg.name);
-      for (const name of toolNames) {
-        const toolDef = adaptMcpTool(
-          { name: name.replace(`mcp:${cfg.name}:`, ""), description: `MCP tool from ${cfg.name}`, inputSchema: { type: "object", properties: {} } },
-          client
-        );
-        register({ ...toolDef, name: `mcp:${cfg.name}:${name.replace(`mcp:${cfg.name}:`, "")}` });
-      }
-      console.log(`MCP: ${cfg.name} connected (${toolNames.length} tools)`);
+      const tools = await connectMcpServer(client, cfg.name);
+      for (const tool of tools) register(tool);
+      console.log(`MCP: ${cfg.name} connected (${tools.length} tools)`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.log(`MCP: ${cfg.name} failed — ${msg}`);
@@ -1119,7 +497,7 @@ async function main(): Promise<void> {
         if (recent.firstMessage) {
           console.log(`  "${recent.firstMessage.slice(0, 80)}"`);
         }
-      } catch { /* best-effort */ }
+      } catch (error) { warnRecoverable(`session:${recent.id}:resume`, error); }
     } else {
       console.log("\n  No previous sessions found for this project.");
     }
@@ -1136,7 +514,7 @@ async function main(): Promise<void> {
       console.log("\n  Select a session to resume:");
       sessions.forEach((s, i) => {
         const when = new Date(s.createdAt).toLocaleString();
-        console.log(`  ${i}: ${s.id.slice(0, 8)}... — ${s.firstMessage?.slice(0, 60)} (${s.status})`);
+          console.log(`  ${i}: ${s.id.slice(0, 8)}... — ${s.firstMessage?.slice(0, 60)} (${s.status}, ${when})`);
       });
       // Use readline to get selection
       const selection = await new Promise<string>((resolve) => {
@@ -1170,7 +548,7 @@ async function main(): Promise<void> {
         const { summary } = sessionManager.resumeSession(matches[0].id);
         initialResumeSummary = summary;
         console.log(`\n  📋 Resuming session: ${matches[0].id.slice(0, 8)}...`);
-      } catch { /* best-effort */ }
+      } catch (error) { warnRecoverable(`session:${matches[0].id}:resume`, error); }
     }
   }
 
@@ -1330,6 +708,9 @@ async function main(): Promise<void> {
 
   process.off("SIGINT", onSigInt);
   if (rl) rl.close();
+  for (const cfg of mcpConfigs) {
+    for (const toolName of disconnectMcpServer(cfg.name)) unregister(toolName);
+  }
 }
 
 main().catch((err) => {

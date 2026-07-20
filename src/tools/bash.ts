@@ -1,6 +1,7 @@
 // Bash tool — executes shell commands
 
 import { spawn } from "child_process";
+import path from "path";
 import type { ToolDefinition } from "../shared/core-types.js";
 import { EnvSandbox } from "../security/sandbox/env-sandbox.js";
 
@@ -38,13 +39,16 @@ export const bashTool: ToolDefinition = {
   type: "write",
   requiresApproval: true,
   isConcurrencySafe: false, // bash commands should not run concurrently
-  async handler(input) {
+  async handler(input, ctx) {
     const command = input.command as string;
     const timeout = Math.min(
       (input.timeout as number) ?? DEFAULT_TIMEOUT_MS,
       MAX_TIMEOUT_MS
     );
-    const workdir = (input.workdir as string) ?? process.cwd();
+    const requestedWorkdir = input.workdir as string | undefined;
+    const workdir = requestedWorkdir
+      ? path.resolve(ctx.workingDir, requestedWorkdir)
+      : ctx.workingDir;
 
     return new Promise((resolve) => {
       // Use spawn with shell for proper handling of pipes, redirects, etc.

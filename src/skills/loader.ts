@@ -8,6 +8,7 @@ import path from "path";
 import { parseSimpleYaml } from "../agent/agent-defs.js";
 import type { SkillDefinition } from "./types.js";
 import { getSkillRegistry } from "./registry.js";
+import { warnRecoverable } from "../shared/diagnostics.js";
 
 // ---- Directory priority (later overrides earlier) ----
 
@@ -119,7 +120,7 @@ export function scanSkillsDir(dir: string): SkillDefinition[] {
             seen.add(def.name);
           }
         }
-      } catch { /* skip unreadable entries */ }
+      } catch (error) { warnRecoverable(`skills:${dir}:scan-entry`, error); }
     }
 
     // Second pass: legacy single .md files (only if not already seen)
@@ -138,7 +139,7 @@ export function scanSkillsDir(dir: string): SkillDefinition[] {
           skills.push(def);
           seen.add(def.name);
         }
-      } catch { /* skip */ }
+      } catch (error) { warnRecoverable(`skills:${dir}:parse-entry`, error); }
     }
   } catch (err) {
     console.error(
@@ -197,7 +198,8 @@ export function parseSkillFile(filePath: string): SkillDefinition | null {
         fm.maxTurns !== undefined ? (fm.maxTurns as number) : undefined,
       allowedTools: parseAllowedTools(fm["allowed-tools"]),
     };
-  } catch {
+  } catch (error) {
+    warnRecoverable(`skills:${filePath}:parse`, error);
     return null;
   }
 }
@@ -314,12 +316,10 @@ export function watchSkills(
           scheduleReload();
         }
       });
-      watcher.on("error", () => {
-        // Watcher can fail on some platforms — ignore
-      });
+      watcher.on("error", (error) => warnRecoverable(`skills:${dir}:watch`, error));
       watchers.push(watcher);
-    } catch {
-      // Directory might not exist or be unwatchable
+    } catch (error) {
+      warnRecoverable(`skills:${dir}:watch-init`, error);
     }
   }
 

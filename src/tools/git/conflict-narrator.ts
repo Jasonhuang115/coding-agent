@@ -223,7 +223,7 @@ function extractFunctions(changes: string[]): string[] {
 function generateSuggestions(
   your: BranchStory,
   theirs: BranchStory,
-  file: string
+  _file: string
 ): ConflictSuggestion[] {
   const suggestions: ConflictSuggestion[] = [
     {

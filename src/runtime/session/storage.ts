@@ -4,6 +4,7 @@
 
 import fs from "fs";
 import path from "path";
+import { warnRecoverable } from "../../shared/diagnostics.js";
 import type { SessionMeta, SessionRecord } from "../../shared/core-types.js";
 
 function getSessionDir(projectHash?: string): string {
@@ -98,8 +99,8 @@ export function loadSession(sessionId: string, baseDir?: string): SessionRecord[
     if (!trimmed) continue;
     try {
       records.push(JSON.parse(trimmed));
-    } catch {
-      // Skip malformed lines
+    } catch (error) {
+      warnRecoverable(`session:${sessionId}:malformed-record`, error);
     }
   }
 

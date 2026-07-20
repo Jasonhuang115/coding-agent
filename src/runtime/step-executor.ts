@@ -15,7 +15,6 @@ import type {
   StreamRenderer,
   ConfirmDecision,
   ToolDefinition,
-  BudgetManager,
 } from "../shared/core-types.js";
 import type { AgentEvent } from "../agent/loop.js";
 import { dispatch } from "../tools/registry.js";
@@ -28,7 +27,7 @@ import { prePushHook, preCommitHook } from "../tools/git/hooks.js";
 // ---- Configuration ----
 
 const DEFAULT_MAX_TOKENS = 16_384;
-const RETRY_MAX_ATTEMPTS = 3;
+const DEFAULT_MAX_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 1000;
 const CIRCUIT_BREAKER_THRESHOLD = 5;
 const CIRCUIT_BREAKER_WINDOW_MS = 60_000;
@@ -68,6 +67,8 @@ export interface TurnOptions {
   toolRuntime: ToolRuntime;
   planManager: PlanManager;
   onConfirmTool?: (toolName: string, input: Record<string, unknown>) => Promise<ConfirmDecision>;
+  /** Number of stream retries after the initial attempt. */
+  maxRetries?: number;
 }
 
 // ---- Error tracking (module-level for circuit breaker) ----
@@ -165,11 +166,13 @@ export async function* executeTurn(
     renderer, workingDir, ctx, toolRuntime, planManager, onConfirmTool,
   } = options;
 
+  const maxRetries = Math.max(0, options.maxRetries ?? DEFAULT_MAX_RETRIES);
+
   // ---- Call model with retry ----
   let streamResult: StreamResult | null = null;
   let retryCount = 0;
 
-  while (retryCount <= RETRY_MAX_ATTEMPTS) {
+  while (retryCount <= maxRetries) {
     if (isCircuitBreakerOpen(errorTimestamps)) {
       yield {
         type: "error",
@@ -206,14 +209,14 @@ export async function* executeTurn(
 
       retryCount++;
       const message = err instanceof Error ? err.message : String(err);
-      const retryable = retryCount < RETRY_MAX_ATTEMPTS;
+      const retryable = retryCount <= maxRetries;
 
       consecutiveErrors++;
       errorTimestamps.push(Date.now());
 
       yield {
         type: "error",
-        message: `Stream error (attempt ${retryCount}/${RETRY_MAX_ATTEMPTS}): ${message}`,
+        message: `Stream error (retry ${retryCount}/${maxRetries}): ${message}`,
         retryable,
       };
 

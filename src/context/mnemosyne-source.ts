@@ -3,7 +3,7 @@
 
 import type { ContextSource, ContextBlock, AgentContext } from "../shared/core-types.js";
 import { getMnemosyneStore } from "../memory/store.js";
-import { hybridRetrieve, type FusionResult } from "../memory/fusion.js";
+import { hybridRetrieve } from "../memory/fusion.js";
 
 export class MnemosyneSource implements ContextSource {
   readonly name = "mnemosyne";
@@ -15,7 +15,9 @@ export class MnemosyneSource implements ContextSource {
 
       // Use Fusion multi-strategy hybrid retrieval (replaces manual candidate+search merge)
       const fusionResult = await hybridRetrieve(query, 8);
-      const toInject = fusionResult.results.filter((r) => r.score >= 0.3);
+      // RRF scores use 1 / (k + rank), so with k=60 the best possible score
+      // is roughly 0.016. Filter at the scale RRF actually produces.
+      const toInject = fusionResult.results.filter((r) => r.score >= 0.005);
 
       if (toInject.length === 0) return null;
 

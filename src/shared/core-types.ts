@@ -117,8 +117,8 @@ export interface AgentConfig {
     rules?: PermissionRule[];
   };
   embedding: {
-    source: "local_onnx" | "api";
-    model?: string;
+    /** Built-in deterministic embedding used by Mnemosyne. */
+    source: "local_hash";
   };
   mnemosyne: {
     bootstrap_on_first_open: boolean;

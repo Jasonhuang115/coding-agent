@@ -9,7 +9,6 @@
 
 import { randomUUID } from "crypto";
 import type {
-  ModelProvider,
   AgentConfig,
   AgentContext,
   Message,
@@ -263,6 +262,7 @@ export async function* agentLoop(
         toolRuntime,
         planManager,
         onConfirmTool: options.onConfirmTool,
+        maxRetries: config.model.maxRetries,
       });
     } catch (err) {
       if (err instanceof UserInterruptError) {

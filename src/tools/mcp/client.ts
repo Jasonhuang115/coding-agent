@@ -2,7 +2,6 @@
 // Zero external dependencies: uses child_process.spawn + manual JSON framing
 
 import { spawn, ChildProcess } from "child_process";
-import { randomUUID } from "crypto";
 import type {
   JsonRpcRequest,
   JsonRpcResponse,
@@ -63,7 +62,7 @@ export class McpClient {
 
     child.on("close", (code) => {
       // Reject all pending requests
-      for (const [id, { reject }] of this.pending) {
+      for (const { reject } of this.pending.values()) {
         reject(new Error(`MCP server "${this.config.name}" exited with code ${code}`));
       }
       this.pending.clear();

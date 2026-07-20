@@ -2,17 +2,17 @@
 // All hooks are read-only analysis; write operations still require user confirmation
 
 import { getGitState, getCurrentBranch, isGitRepo } from "./advisor.js";
-import { runPreflight, type PreflightResult } from "./preflight.js";
-import { verifyIntent, type IntentVerification } from "./intent-verify.js";
-import { getBranchHealth, type BranchHealthSummary } from "./branch-health.js";
+import { runPreflight } from "./preflight.js";
+import { verifyIntent } from "./intent-verify.js";
+import { getBranchHealth } from "./branch-health.js";
 import { narrateHistory } from "./archaeology.js";
 import { quickBlame } from "./semantic-blame.js";
-import { detectConceptQuestion, explainWithContext } from "./newbie-guide.js";
-import { scanTeamRadar, type TeamRadarResult } from "./team-radar.js";
-import { learnWorkflow, checkAgainstProfile, type WorkflowProfile } from "./workflow-learner.js";
+import { detectConceptQuestion } from "./newbie-guide.js";
+import { scanTeamRadar } from "./team-radar.js";
+import { learnWorkflow, checkAgainstProfile } from "./workflow-learner.js";
 import { hasConflicts, listConflictedFiles, narrateConflict } from "./conflict-narrator.js";
+import { warnRecoverable } from "../../shared/diagnostics.js";
 import type { PlanDoc } from "../../agent/planner/tree.js";
-import type { MnemosyneStore } from "../../memory/store.js";
 
 // ---- Types ----
 
@@ -206,7 +206,8 @@ export async function sessionEndHook(
       learned: true,
       advice: advice.map((a) => `[${a.category}] ${a.message}`),
     };
-  } catch {
+  } catch (error) {
+    warnRecoverable(`git:${workingDir}:session-end`, error);
     return { learned: false, advice: [] };
   }
 }

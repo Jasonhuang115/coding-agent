@@ -6,6 +6,7 @@ import fs from "fs";
 import path from "path";
 import { getMnemosyneStore } from "./store.js";
 import { isGitRepo, gitExec } from "../tools/git/advisor.js";
+import { warnRecoverable } from "../shared/diagnostics.js";
 
 export interface SeedResult {
   totalSeeded: number;
@@ -47,7 +48,7 @@ async function seedDependencies(store: ReturnType<typeof getMnemosyneStore>, wor
         count++;
       }
     }
-  } catch { /* invalid JSON */ }
+  } catch (error) { warnRecoverable(`seeder:${pkgPath}:dependencies`, error); }
   return count;
 }
 
@@ -105,7 +106,7 @@ function countExtensions(dir: string, counts: Map<string, number>, maxFiles: num
       if (entry.isDirectory()) countExtensions(fullPath, counts, maxFiles);
       else if (entry.isFile()) { const ext = path.extname(entry.name); if (ext) counts.set(ext, (counts.get(ext) || 0) + 1); }
     }
-  } catch { /* skip */ }
+  } catch (error) { warnRecoverable(`seeder:${dir}:extensions`, error); }
 }
 
 async function seedGitHistory(store: ReturnType<typeof getMnemosyneStore>, workingDir: string): Promise<number> {
@@ -119,7 +120,7 @@ async function seedGitHistory(store: ReturnType<typeof getMnemosyneStore>, worki
     }
     const remoteUrl = await gitExec(["remote", "get-url", "origin"], workingDir).catch(() => "");
     if (remoteUrl) { store.upsertEntity("git/remote", "config", `Git remote: ${remoteUrl}`, "seeder", 0.8, "seeder", 0); count++; }
-  } catch { /* skip */ }
+  } catch (error) { warnRecoverable(`seeder:${workingDir}:git-history`, error); }
   return count;
 }
 
@@ -163,7 +164,7 @@ async function seedConfig(store: ReturnType<typeof getMnemosyneStore>, workingDi
         if (summary) { store.upsertEntity(`${projectName}/config/tsconfig-options`, "config", `TS compiler options: ${summary}`, "seeder", 0.75, "seeder", 0); count++; }
       }
     }
-  } catch { /* skip */ }
+  } catch (error) { warnRecoverable(`seeder:${workingDir}:tsconfig`, error); }
 
   return count;
 }

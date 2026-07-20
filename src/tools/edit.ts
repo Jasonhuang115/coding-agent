@@ -1,10 +1,10 @@
 // Edit tool — exact string replacement in files. Requires ReadGuard.
 
 import fs from "fs";
-import path from "path";
 import { createTwoFilesPatch } from "diff";
-import type { ToolDefinition, AgentContext } from "../shared/core-types.js";
+import type { ToolDefinition } from "../shared/core-types.js";
 import { enforceReadGuard } from "./registry.js";
+import { resolveToolPath } from "./path-utils.js";
 
 export const editTool: ToolDefinition = {
   name: "Edit",
@@ -38,7 +38,7 @@ export const editTool: ToolDefinition = {
   requiresApproval: true,
   isConcurrencySafe: false,
   async handler(input, ctx) {
-    const filePath = resolvePath(input.file_path as string);
+    const filePath = resolveToolPath(input.file_path as string, ctx.workingDir);
     const oldString = input.old_string as string;
     const newString = input.new_string as string;
     const replaceAll = (input.replace_all as boolean) ?? false;
@@ -120,9 +120,4 @@ function countOccurrences(haystack: string, needle: string): number {
     pos += needle.length;
   }
   return count;
-}
-
-function resolvePath(filePath: string): string {
-  if (path.isAbsolute(filePath)) return path.normalize(filePath);
-  return path.resolve(process.cwd(), filePath);
 }

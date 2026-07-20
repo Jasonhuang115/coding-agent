@@ -6,67 +6,15 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
-import type { MemoryStore, MemoryEntry, MemoryEdge, MemoryEntityType, MemoryRelationType, MemoryStatus } from "./schema.js";
-import { generateSimpleEmbedding } from "./embedding/setup.js";
+import type { MemoryStore, MemoryEntry, MemoryEdge } from "./schema.js";
+import type { EntityRow, RelationRow, InjectedMemory, FeedbackSignalRow, MemorySearchOptions } from "./store-types.js";
+import { cosineSimilarity, generateSimpleEmbedding } from "./embedding/setup.js";
+import { initializeMemorySchema } from "./store-schema.js";
 
 const DECAY_RATE = 0.01;
 const DECAY_THRESHOLD = 0.3;
 
-export interface EntityRow {
-  id: number;
-  type: MemoryEntityType;
-  name: string;
-  content: string;
-  source_session: string;
-  source: string;         // 'auto' | 'manual' | 'seeder' | 'memories_md'
-  protected: number;       // 1 = never auto-delete
-  tags: string;            // comma-separated
-  confidence: number;
-  created_at: number;
-  updated_at: number;
-  embedding: Buffer | null; // 384-dim float32
-  status: MemoryStatus;
-  superseded_by: number | null;
-  abstracted_from: string;  // comma-separated IDs of source entities
-  feedback_score: number;   // cumulative feedback signal
-  access_count: number;     // total times accessed
-}
-
-export interface RelationRow {
-  id: number;
-  source_id: number;
-  target_id: number;
-  relation_type: MemoryRelationType;
-  weight: number;
-  evidence: string;
-  created_at: number;
-}
-
-export interface AccessLogRow {
-  entity_id: number;
-  accessed_at: number;
-  source_session: string;
-}
-
-export interface InjectedMemory {
-  entity: EntityRow;
-  retrievalSource: string;
-  query: string;
-}
-
-export interface FeedbackSignalRow {
-  memoryId: number;
-  sessionId: string;
-  eventType: string;
-  signalType: string;
-  retrievalSource: string;
-  scoreDelta: number;
-  context: Record<string, unknown>;
-}
-
-export interface MemorySearchOptions {
-  statuses?: MemoryStatus[];
-}
+export type { EntityRow, RelationRow, InjectedMemory, FeedbackSignalRow, MemorySearchOptions } from "./store-types.js";
 
 const STRATEGIES = ["fts5", "vector", "graph"] as const;
 const MIN_STRATEGY_SAMPLES = 5;
@@ -87,156 +35,7 @@ export class MnemosyneStore implements MemoryStore {
     this.db = new Database(this.dbPath);
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
-    this.initTables();
-  }
-
-  private initTables(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS entities (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        type TEXT NOT NULL CHECK(type IN ('file','function','class','concept','config','error','deploy','api','dependency','test','note')),
-        name TEXT NOT NULL,
-        content TEXT NOT NULL DEFAULT '',
-        source_session TEXT NOT NULL DEFAULT '',
-        confidence REAL NOT NULL DEFAULT 1.0,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS relations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        source_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-        target_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-        relation_type TEXT NOT NULL CHECK(relation_type IN (
-          'DEPENDS_ON','FIXED_BY','RELATED_TO','MENTIONED_IN',
-          'IMPLEMENTS','CONFIGURES','TESTED_BY','ALTERNATIVE_TO',
-          'REPLACES','CAUSES','PREVENTS','EXAMPLES'
-        )),
-        weight REAL NOT NULL DEFAULT 1.0,
-        evidence TEXT NOT NULL DEFAULT '',
-        created_at INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS access_log (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-        accessed_at INTEGER NOT NULL,
-        source_session TEXT NOT NULL DEFAULT ''
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type);
-      CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
-      CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_id);
-      CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target_id);
-      CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type);
-      CREATE INDEX IF NOT EXISTS idx_access_entity ON access_log(entity_id);
-    `);
-
-    // Phase 2 migration: add new columns
-    this.migrateAddColumn("entities", "source", "TEXT NOT NULL DEFAULT 'auto'");
-    this.migrateAddColumn("entities", "protected", "INTEGER NOT NULL DEFAULT 0");
-    this.migrateAddColumn("entities", "tags", "TEXT NOT NULL DEFAULT ''");
-    this.migrateAddColumn("entities", "embedding", "BLOB");
-    this.migrateAddColumn("entities", "status", "TEXT NOT NULL DEFAULT 'active'");
-    this.migrateAddColumn("entities", "superseded_by", "INTEGER DEFAULT NULL");
-    this.migrateAddColumn("entities", "abstracted_from", "TEXT NOT NULL DEFAULT ''");
-    this.migrateAddColumn("entities", "feedback_score", "REAL NOT NULL DEFAULT 0.0");
-    this.migrateAddColumn("entities", "access_count", "INTEGER NOT NULL DEFAULT 0");
-
-    // FTS5 virtual table
-    this.db.exec(`
-      CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
-        name, content, tags, content='entities', content_rowid='id'
-      );
-    `);
-
-    // Feedback log — tracks injection, reference, and usage signals
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS feedback_log (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        memory_id INTEGER REFERENCES entities(id) ON DELETE SET NULL,
-        session_id TEXT NOT NULL DEFAULT '',
-        event_type TEXT NOT NULL CHECK(event_type IN ('injected','referenced','ignored','user_corrected','tool_success','tool_failed')),
-        score_delta REAL NOT NULL DEFAULT 0,
-        signal_type TEXT NOT NULL DEFAULT 'injected',
-        context TEXT DEFAULT '{}',
-        retrieval_source TEXT NOT NULL DEFAULT '',
-        timestamp INTEGER NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_feedback_memory ON feedback_log(memory_id);
-      CREATE INDEX IF NOT EXISTS idx_feedback_event ON feedback_log(event_type);
-    `);
-
-    // Extra columns for feedback_log (migration-safe)
-    this.migrateAddColumn("feedback_log", "signal_type", "TEXT NOT NULL DEFAULT 'injected'");
-    this.migrateAddColumn("feedback_log", "retrieval_source", "TEXT NOT NULL DEFAULT ''");
-
-    // Pending consolidation — lazy merging (RecMem pattern)
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS pending_consolidation (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        group_hash TEXT NOT NULL,
-        entity_ids TEXT NOT NULL,
-        similarity REAL NOT NULL DEFAULT 0,
-        trigger_count INTEGER NOT NULL DEFAULT 1,
-        first_seen_at INTEGER NOT NULL,
-        last_seen_at INTEGER NOT NULL
-      );
-    `);
-
-    // Strategy weights
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS strategy_weights (
-        strategy TEXT PRIMARY KEY,
-        weight REAL NOT NULL DEFAULT 0.33,
-        total_calls INTEGER NOT NULL DEFAULT 0,
-        success_calls INTEGER NOT NULL DEFAULT 0,
-        updated_at INTEGER NOT NULL DEFAULT 0
-      );
-    `);
-
-    const existingWeights = this.db.prepare("SELECT COUNT(*) as c FROM strategy_weights").get() as { c: number };
-    if (existingWeights.c === 0) {
-      const now = Date.now();
-      this.db.prepare("INSERT INTO strategy_weights (strategy, weight, updated_at) VALUES (?, ?, ?)").run("fts5", 0.5, now);
-      this.db.prepare("INSERT INTO strategy_weights (strategy, weight, updated_at) VALUES (?, ?, ?)").run("vector", 0.3, now);
-      this.db.prepare("INSERT INTO strategy_weights (strategy, weight, updated_at) VALUES (?, ?, ?)").run("graph", 0.2, now);
-    }
-
-    // Query rewrite rules
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS query_rewrite_rules (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        original_pattern TEXT NOT NULL,
-        rewritten_query TEXT NOT NULL,
-        success_count INTEGER NOT NULL DEFAULT 1,
-        last_used INTEGER NOT NULL DEFAULT 0
-      );
-    `);
-
-    // FTS5 triggers — keep index in sync with entities table
-    this.db.exec(`
-      CREATE TRIGGER IF NOT EXISTS entities_fts_insert AFTER INSERT ON entities BEGIN
-        INSERT INTO entities_fts(rowid, name, content, tags) VALUES (new.id, new.name, new.content, new.tags);
-      END;
-      CREATE TRIGGER IF NOT EXISTS entities_fts_delete AFTER DELETE ON entities BEGIN
-        INSERT INTO entities_fts(entities_fts, rowid, name, content, tags) VALUES('delete', old.id, old.name, old.content, old.tags);
-      END;
-      CREATE TRIGGER IF NOT EXISTS entities_fts_update AFTER UPDATE ON entities BEGIN
-        INSERT INTO entities_fts(entities_fts, rowid, name, content, tags) VALUES('delete', old.id, old.name, old.content, old.tags);
-        INSERT INTO entities_fts(rowid, name, content, tags) VALUES (new.id, new.name, new.content, new.tags);
-      END;
-    `);
-
-    // Rebuild FTS5 index from existing data
-    this.db.exec(`INSERT INTO entities_fts(entities_fts) VALUES('rebuild');`);
-  }
-
-  private migrateAddColumn(table: string, column: string, definition: string): void {
-    const info = this.db.pragma(`table_info(${table})`) as Array<{ name: string }>;
-    if (!info.some((col) => col.name === column)) {
-      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-    }
+    initializeMemorySchema(this.db);
   }
 
   // ---- Entity CRUD ----
@@ -289,6 +88,7 @@ export class MnemosyneStore implements MemoryStore {
           )
           .run(mergedContent, mergedConfidence, now, sourceSession, finalProtected, existing.id);
 
+        this.autoEmbed(existing.id, name, mergedContent);
         return existing.id;
       }
     }
@@ -914,7 +714,32 @@ export class MnemosyneStore implements MemoryStore {
     }));
   }
 
-  async searchByVector(_vector: Float32Array, _limit = 10): Promise<MemoryEntry[]> { return []; }
+  async searchByVector(vector: Float32Array, limit = 10): Promise<MemoryEntry[]> {
+    const matches: Array<{ entity: EntityRow; similarity: number }> = [];
+    for (const { id } of this.getAllEntityIds(500)) {
+      const entity = this.getEntity(id);
+      if (!entity?.embedding || entity.status !== "active") continue;
+      const embedding = new Float32Array(
+        entity.embedding.buffer,
+        entity.embedding.byteOffset,
+        entity.embedding.byteLength / Float32Array.BYTES_PER_ELEMENT,
+      );
+      const similarity = cosineSimilarity(vector, embedding);
+      if (similarity > 0.1) matches.push({ entity, similarity });
+    }
+
+    return matches
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, limit)
+      .map(({ entity }) => ({
+        id: entity.id,
+        type: entity.type,
+        name: entity.name,
+        content: entity.content,
+        source: entity.source_session,
+        timestamp: entity.updated_at,
+      }));
+  }
 
   async getEdges(entryId: number): Promise<MemoryEdge[]> {
     const rels = this.getRelations(entryId);
@@ -929,8 +754,24 @@ export class MnemosyneStore implements MemoryStore {
   }
 
   async getRelated(entryId: number, depth = 1): Promise<MemoryEntry[]> {
-    const neighbors = this.getNeighbors(entryId);
-    return neighbors.map(({ entity }) => ({
+    const related = new Map<number, EntityRow>();
+    const visited = new Set([entryId]);
+    let frontier = [entryId];
+
+    for (let level = 0; level < Math.max(1, depth) && frontier.length > 0; level++) {
+      const next: number[] = [];
+      for (const id of frontier) {
+        for (const { entity } of this.getNeighbors(id)) {
+          if (visited.has(entity.id)) continue;
+          visited.add(entity.id);
+          related.set(entity.id, entity);
+          next.push(entity.id);
+        }
+      }
+      frontier = next;
+    }
+
+    return [...related.values()].map((entity) => ({
       id: entity.id,
       type: entity.type,
       name: entity.name,

@@ -1,8 +1,8 @@
 // Read tool — reads files into the session, feeds ReadGuard
 
 import fs from "fs";
-import path from "path";
-import type { ToolDefinition, AgentContext } from "../shared/core-types.js";
+import type { ToolDefinition } from "../shared/core-types.js";
+import { resolveToolPath } from "./path-utils.js";
 
 const MAX_LINES = 2000;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -39,7 +39,7 @@ export const readTool: ToolDefinition = {
   requiresApproval: false,
   isConcurrencySafe: true,
   async handler(input, ctx) {
-    const filePath = resolvePath(input.file_path as string);
+    const filePath = resolveToolPath(input.file_path as string, ctx.workingDir);
     const offset = (input.offset as number) ?? 1;
     const limit = (input.limit as number) ?? MAX_LINES;
     const pages = input.pages as string | undefined;
@@ -114,8 +114,3 @@ export const readTool: ToolDefinition = {
     }
   },
 };
-
-function resolvePath(filePath: string): string {
-  if (path.isAbsolute(filePath)) return path.normalize(filePath);
-  return path.resolve(process.cwd(), filePath);
-}

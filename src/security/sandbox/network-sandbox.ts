@@ -1,5 +1,6 @@
 // NetworkSandbox — prevents SSRF and unsafe network requests
-// Blocks internal IPs, file:// protocol, and enforces domain allowlists.
+// Blocks internal IPs and unsafe URL schemes. DNS resolution is delegated to
+// the runtime, so every redirect target must be validated by the caller too.
 
 import type { ISandbox, SandboxResult } from "./sandbox.js";
 
@@ -18,35 +19,16 @@ const PRIVATE_IP_PATTERNS = [
 /** Blocked URL schemes. */
 const BLOCKED_SCHEMES = ["file:", "ftp:", "gopher:", "data:"];
 
-/** Domains always allowed for common dev workflows. */
-const ALWAYS_ALLOWED_DOMAINS = [
-  "github.com",
-  "api.github.com",
-  "registry.npmjs.org",
-  "registry.yarnpkg.com",
-  "pypi.org",
-  "crates.io",
-  "docs.rs",
-];
-
 export class NetworkSandbox implements ISandbox {
   readonly name = "network-sandbox";
 
-  // Configurable allowlist
-  private readonly extraAllowedDomains: string[];
-
-  constructor(extraAllowedDomains: string[] = []) {
-    this.extraAllowedDomains = extraAllowedDomains;
-  }
-
   validate(toolName: string, input: Record<string, unknown>, _workingDir: string): SandboxResult {
-    // Only applies to WebFetch and WebSearch
-    if (toolName !== "WebFetch" && toolName !== "WebSearch") {
+    if (toolName !== "WebFetch") {
       return { allowed: true };
     }
 
-    const url = (input.url as string) ?? (input.query as string);
-    if (!url) return { allowed: true }; // WebSearch query is not a URL
+    const url = input.url as string | undefined;
+    if (!url) return { allowed: false, reason: "WebFetch requires a URL." };
 
     const normalized = url.toLowerCase().trim();
 

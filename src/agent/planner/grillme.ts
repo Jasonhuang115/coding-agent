@@ -4,7 +4,7 @@
 // When deviation is detected, warns the user and offers options.
 
 import type { PlanDoc, IntentionNode } from "./tree.js";
-import { getActiveGoal, getBlockedBy, findNode } from "./tree.js";
+import { getActiveGoal, getBlockedBy } from "./tree.js";
 
 // ---- Types ----
 

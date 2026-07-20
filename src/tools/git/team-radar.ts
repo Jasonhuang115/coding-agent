@@ -3,6 +3,7 @@
 // Pure local analysis, no external services needed
 
 import { gitExec } from "./advisor.js";
+import { warnRecoverable } from "../../shared/diagnostics.js";
 
 export interface CollisionWarning {
   /** The file that has overlapping edits */
@@ -43,7 +44,9 @@ export async function scanTeamRadar(
     );
 
     // Fetch all remotes to get latest
-    await gitExec(["fetch", "--all"], workingDir).catch(() => {});
+    await gitExec(["fetch", "--all"], workingDir).catch((error) => {
+      warnRecoverable(`git:${workingDir}:team-radar-fetch`, error);
+    });
 
     // Get your changed files
     const yourFiles = await getModifiedFiles(workingDir);
@@ -85,8 +88,8 @@ export async function scanTeamRadar(
             ),
           });
         }
-      } catch {
-        // Skip branches we can't analyze
+      } catch (error) {
+        warnRecoverable(`git:${workingDir}:team-radar:${remoteBranch}`, error);
       }
     }
 
@@ -102,7 +105,8 @@ export async function scanTeamRadar(
       collisions,
       summary: summarizeCollisions(collisions),
     };
-  } catch {
+  } catch (error) {
+    warnRecoverable(`git:${workingDir}:team-radar`, error);
     return null;
   }
 }

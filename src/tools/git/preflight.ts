@@ -2,6 +2,7 @@
 // Checks: remote ahead/behind, other branches touching same files, test status
 
 import { gitExec, getCurrentBranch } from "./advisor.js";
+import { warnRecoverable } from "../../shared/diagnostics.js";
 
 export interface PreflightResult {
   /** Is it safe to push? */
@@ -13,7 +14,10 @@ export interface PreflightResult {
 }
 
 export async function runPreflight(workingDir: string): Promise<PreflightResult | null> {
-  const branch = await getCurrentBranch(workingDir).catch(() => null);
+  const branch = await getCurrentBranch(workingDir).catch((error) => {
+    warnRecoverable(`git:${workingDir}:preflight-branch`, error);
+    return null;
+  });
   if (!branch) return null;
 
   const warnings: PreflightResult["warnings"] = [];
@@ -36,8 +40,8 @@ export async function runPreflight(workingDir: string): Promise<PreflightResult 
       });
       recommendations.push(`git fetch origin ${defaultBranch} && git rebase origin/${defaultBranch}`);
     }
-  } catch {
-    // No remote or no default branch — skip
+  } catch (error) {
+    warnings.push({ level: "info", message: `无法检查远程同步状态：${error instanceof Error ? error.message : String(error)}` });
   }
 
   // 2. Check for uncommitted changes
@@ -51,8 +55,8 @@ export async function runPreflight(workingDir: string): Promise<PreflightResult 
       });
       recommendations.push("先 git add + git commit，或者 git stash");
     }
-  } catch {
-    // skip
+  } catch (error) {
+    warnings.push({ level: "info", message: `无法检查未提交文件：${error instanceof Error ? error.message : String(error)}` });
   }
 
   // 3. Look for other local branches that touch the same files
@@ -78,12 +82,12 @@ export async function runPreflight(workingDir: string): Promise<PreflightResult 
           });
           recommendations.push(`和 \`${otherBranch}\` 的作者确认改动范围`);
         }
-      } catch {
-        // skip this branch
+      } catch (error) {
+        warnings.push({ level: "info", message: `无法分析分支 ${otherBranch}：${error instanceof Error ? error.message : String(error)}` });
       }
     }
-  } catch {
-    // skip
+  } catch (error) {
+    warnings.push({ level: "info", message: `无法分析其他分支：${error instanceof Error ? error.message : String(error)}` });
   }
 
   return {

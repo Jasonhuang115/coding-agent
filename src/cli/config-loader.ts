@@ -5,6 +5,7 @@ import path from "path";
 import YAML from "yaml";
 import type { AgentConfig } from "../shared/core-types.js";
 import { DEFAULT_PERMISSIONS } from "../permissions/config.js";
+import { warnRecoverable } from "../shared/diagnostics.js";
 
 const CONFIG_FILE_NAMES = [
   ".rubato.yml",
@@ -114,12 +115,20 @@ export function loadConfig(workingDir: string): AgentConfig {
       const content = fs.readFileSync(homeConfigPath, "utf-8");
       const homeConfig = YAML.parse(content) ?? {};
       fileConfig = deepMerge(fileConfig, homeConfig);
-    } catch {
-      // Silently ignore
+    } catch (error) {
+      warnRecoverable(`config:${homeConfigPath}:load`, error);
     }
   }
 
   // Build final config with defaults
+  const rawEmbedding = fileConfig.embedding as { source?: unknown; model?: unknown } | undefined;
+  if (rawEmbedding?.source && rawEmbedding.source !== "local_hash") {
+    console.warn(`Warning: embedding.source="${String(rawEmbedding.source)}" is no longer supported; using "local_hash".`);
+  }
+  if (rawEmbedding?.model) {
+    console.warn("Warning: embedding.model is ignored because Rubato uses the built-in local_hash embedding.");
+  }
+
   const config: AgentConfig = {
     model: {
       provider: process.env.CODING_AGENT_PROVIDER ??
@@ -139,8 +148,7 @@ export function loadConfig(workingDir: string): AgentConfig {
       ...fileConfig.permissions,
     },
     embedding: {
-      source: (fileConfig.embedding?.source as "local_onnx" | "api") ?? "local_onnx",
-      model: fileConfig.embedding?.model,
+      source: "local_hash",
     },
     mnemosyne: {
       bootstrap_on_first_open: fileConfig.mnemosyne?.bootstrap_on_first_open ?? true,

@@ -38,7 +38,6 @@ export function parsePlan(markdown: string, branch: string): PlanDoc {
 
   const title = extract(lines, /^# Plan:\s*(.+)/) ?? "Untitled";
   const statusLine = extract(lines, /^\*\*Status:\*\*\s*(.+?)\s*\|/);
-  const progressLine = extract(lines, /\|\s*\*\*Progress:\*\*\s*(\d+)\/(\d+)/);
   const updatedLine = extract(lines, /\|\s*\*\*Updated:\*\*\s*(.+)/);
 
   const status = parseStatus(statusLine ?? "draft");

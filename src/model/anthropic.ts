@@ -8,7 +8,6 @@ import type {
   StreamEvent,
   ToolDefinition,
   Message as AgentMessage,
-  ContentBlock,
 } from "../shared/core-types.js";
 
 export class AnthropicProvider implements ModelProvider {

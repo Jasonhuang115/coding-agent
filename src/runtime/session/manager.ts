@@ -6,6 +6,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { loadSession } from "./storage.js";
+import { warnRecoverable } from "../../shared/diagnostics.js";
 
 // ---- Types ----
 
@@ -82,8 +83,9 @@ export class SessionManager {
       } else {
         this.index = [];
       }
-    } catch {
+    } catch (error) {
       this.index = [];
+      warnRecoverable(`sessions:${this.projectHash}:load-index`, error);
     }
     return this.index;
   }
@@ -151,7 +153,7 @@ export class SessionManager {
 
     // Also remove transcript file
     const sessionPath = this.getSessionPath(id);
-    try { fs.unlinkSync(sessionPath); } catch { /* best-effort */ }
+    try { fs.unlinkSync(sessionPath); } catch (error) { warnRecoverable(`sessions:${this.projectHash}:remove-transcript`, error); }
   }
 
   // ---- Resume ----

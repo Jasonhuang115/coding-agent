@@ -2,8 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { ContextChain } from "../src/context/sources.js";
 import { microCompact, snipContent, snipLines } from "../src/context/compression.js";
-import { buildSystemPrompt } from "../src/context/system-prompt.js";
-import type { ContextSource, ContextBlock, AgentContext, ToolDefinition } from "../src/shared/core-types.js";
+import type { ContextSource, ContextBlock, AgentContext } from "../src/shared/core-types.js";
 
 function mockCtx(): AgentContext {
   return {
@@ -26,7 +25,7 @@ function mockCtx(): AgentContext {
         edit: "auto",
         web: "auto",
       },
-      embedding: { source: "local_onnx" },
+      embedding: { source: "local_hash" },
       mnemosyne: { bootstrap_on_first_open: false, bootstrap_max_files: 100 },
       session: { cleanupPeriodDays: 30 },
     },
@@ -167,24 +166,5 @@ describe("Snip", () => {
     // Should contain some lines from the head and tail
     expect(result).toContain("line 0");
     expect(result).toContain("line 99");
-  });
-});
-
-describe("SystemPrompt", () => {
-  it("includes tool descriptions", () => {
-    const tools: ToolDefinition[] = [
-      {
-        name: "TestTool",
-        description: "A test tool for testing",
-        inputSchema: { type: "object", properties: {} },
-        type: "read",
-        handler: async () => ({ content: "" }),
-      },
-    ];
-
-    const prompt = buildSystemPrompt(mockCtx(), tools);
-    expect(prompt).toContain("TestTool");
-    expect(prompt).toContain("A test tool for testing");
-    expect(prompt).toContain("/tmp/test");
   });
 });

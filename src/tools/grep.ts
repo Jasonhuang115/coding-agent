@@ -1,8 +1,8 @@
 // Grep tool — searches file contents with regex
 
 import { spawn } from "child_process";
-import path from "path";
-import type { ToolDefinition, AgentContext } from "../shared/core-types.js";
+import type { ToolDefinition } from "../shared/core-types.js";
+import { resolveToolPath } from "./path-utils.js";
 
 const MAX_MATCHES = 500;
 const MAX_OUTPUT_LENGTH = 100_000;
@@ -48,9 +48,7 @@ export const grepTool: ToolDefinition = {
   isConcurrencySafe: true,
   async handler(input, ctx) {
     const pattern = input.pattern as string;
-    const searchPath = resolvePath(
-      (input.path as string) ?? ctx.workingDir ?? process.cwd()
-    );
+    const searchPath = resolveToolPath((input.path as string) ?? ".", ctx.workingDir);
     const include = input.include as string | undefined;
     const exclude = input.exclude as string | undefined;
     const maxMatches = (input.max_matches as number) ?? MAX_MATCHES;
@@ -212,9 +210,4 @@ function formatResults(
     .join("\n");
 
   return header + formatted;
-}
-
-function resolvePath(filePath: string): string {
-  if (path.isAbsolute(filePath)) return path.normalize(filePath);
-  return path.resolve(process.cwd(), filePath);
 }

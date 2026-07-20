@@ -156,22 +156,19 @@ function generateTasksForType(
 
   switch (type) {
     case "auth":
-      return buildAuthTasks(req, answer);
+      return buildAuthTasks(answer);
     case "database":
-      return buildDatabaseTasks(req, answer);
+      return buildDatabaseTasks(answer);
     case "api":
-      return buildApiTasks(req, answer);
+      return buildApiTasks(answer);
     case "frontend":
-      return buildFrontendTasks(req, answer);
+      return buildFrontendTasks(answer);
     default:
       return null;
   }
 }
 
-function buildAuthTasks(
-  req: GatheredRequirements,
-  a: (k: string) => string
-): IntentionNode {
+function buildAuthTasks(a: (k: string) => string): IntentionNode {
   const id = "root/1";
   const node: IntentionNode = {
     id,
@@ -295,10 +292,7 @@ function buildAuthTasks(
   return node;
 }
 
-function buildDatabaseTasks(
-  req: GatheredRequirements,
-  a: (k: string) => string
-): IntentionNode {
+function buildDatabaseTasks(a: (k: string) => string): IntentionNode {
   const id = "root/1";
   const node: IntentionNode = {
     id,
@@ -350,10 +344,7 @@ function buildDatabaseTasks(
   return node;
 }
 
-function buildApiTasks(
-  req: GatheredRequirements,
-  a: (k: string) => string
-): IntentionNode {
+function buildApiTasks(a: (k: string) => string): IntentionNode {
   const id = "root/1";
   const node: IntentionNode = {
     id,
@@ -414,10 +405,7 @@ function buildApiTasks(
   return node;
 }
 
-function buildFrontendTasks(
-  req: GatheredRequirements,
-  a: (k: string) => string
-): IntentionNode {
+function buildFrontendTasks(a: (k: string) => string): IntentionNode {
   const id = "root/1";
   const node: IntentionNode = {
     id,
@@ -478,8 +466,6 @@ function hasTesting(req: GatheredRequirements): boolean {
 
 function predictFiles(req: GatheredRequirements): string[] {
   const files: string[] = [];
-  const a = req.answers;
-
   if (req.taskTypes.includes("auth")) {
     files.push("src/auth/");
     files.push("src/middleware/auth.ts");

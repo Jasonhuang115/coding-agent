@@ -53,8 +53,8 @@ export interface ExtractedKnowledge {
 /** Scan messages for valuable knowledge */
 export function extractKnowledge(
   messages: Message[],
-  sessionId: string,
-  projectPath: string
+  _sessionId: string,
+  _projectPath: string
 ): ExtractedKnowledge[] {
   const results: ExtractedKnowledge[] = [];
 
@@ -73,8 +73,8 @@ export function extractKnowledge(
           texts,
           index,
           signal,
-          sessionId,
-          projectPath
+          _sessionId,
+          _projectPath
         );
         if (knowledge) {
           results.push(knowledge);
@@ -97,8 +97,8 @@ function extractAroundSignal(
   texts: Array<{ index: number; text: string }>,
   signalIndex: number,
   signal: ExtractionSignal,
-  sessionId: string,
-  projectPath: string
+  _sessionId: string,
+  _projectPath: string
 ): ExtractedKnowledge | null {
   // Get context: N messages around the signal
   const start = Math.max(0, signalIndex - signal.contextWindow);

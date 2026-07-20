@@ -1,10 +1,30 @@
 // Web tool — web fetch and search (Tavily API)
-import type { ToolDefinition, AgentContext } from "../shared/core-types.js";
+import type { ToolDefinition } from "../shared/core-types.js";
 
 // ---- WebFetch ----
 
 const FETCH_TIMEOUT_MS = 30_000;
 const MAX_RESPONSE_SIZE = 500_000; // 500KB
+const MAX_REDIRECTS = 5;
+
+function validatePublicHttpUrl(value: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+
+  if (!["http:", "https:"].includes(parsed.protocol)) return null;
+  const hostname = parsed.hostname.toLowerCase();
+  if (
+    hostname === "localhost" || hostname === "::1" ||
+    /^127\./.test(hostname) || /^10\./.test(hostname) ||
+    /^192\.168\./.test(hostname) || /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
+    /^169\.254\./.test(hostname) || hostname === "0.0.0.0"
+  ) return null;
+  return parsed.toString();
+}
 
 export const webFetchTool: ToolDefinition = {
   name: "WebFetch",
@@ -33,20 +53,10 @@ export const webFetchTool: ToolDefinition = {
     const url = (input.url as string).trim();
     const prompt = input.prompt as string;
 
-    // Validate URL
-    let fetchUrl: string;
-    try {
-      const parsed = new URL(url);
-      if (!["http:", "https:"].includes(parsed.protocol)) {
-        return {
-          content: `Unsupported protocol: "${parsed.protocol}". Only http/https are allowed.`,
-          isError: true,
-        };
-      }
-      fetchUrl = parsed.toString();
-    } catch {
+    let fetchUrl = validatePublicHttpUrl(url);
+    if (!fetchUrl) {
       return {
-        content: `Invalid URL: "${url}". Provide a full URL including https://.`,
+        content: `Invalid or unsafe URL: "${url}". Provide a public http(s) URL.`,
         isError: true,
       };
     }
@@ -55,14 +65,29 @@ export const webFetchTool: ToolDefinition = {
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
     try {
-      const response = await fetch(fetchUrl, {
-        signal: controller.signal,
-        headers: {
-          "User-Agent": "rubato/0.2 (web-fetch)",
-          Accept: "text/html, text/plain, application/xhtml+xml, */*",
-        },
-        redirect: "follow",
-      });
+      let response: Response | undefined;
+      for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
+        response = await fetch(fetchUrl, {
+          signal: controller.signal,
+          headers: {
+            "User-Agent": "rubato/0.2 (web-fetch)",
+            Accept: "text/html, text/plain, application/xhtml+xml, */*",
+          },
+          redirect: "manual",
+        });
+        if (![301, 302, 303, 307, 308].includes(response.status)) break;
+        const location = response.headers.get("location");
+        if (!location) break;
+        const nextUrl = validatePublicHttpUrl(new URL(location, fetchUrl).toString());
+        if (!nextUrl) {
+          return { content: `Blocked unsafe redirect from ${fetchUrl}`, isError: true };
+        }
+        fetchUrl = nextUrl;
+      }
+
+      if (!response || [301, 302, 303, 307, 308].includes(response.status)) {
+        return { content: `Too many redirects for ${fetchUrl}`, isError: true };
+      }
 
       clearTimeout(timer);
 

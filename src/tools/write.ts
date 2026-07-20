@@ -2,8 +2,9 @@
 
 import fs from "fs";
 import path from "path";
-import type { ToolDefinition, AgentContext } from "../shared/core-types.js";
+import type { ToolDefinition } from "../shared/core-types.js";
 import { enforceReadGuard } from "./registry.js";
+import { resolveToolPath } from "./path-utils.js";
 
 export const writeTool: ToolDefinition = {
   name: "Write",
@@ -29,7 +30,7 @@ export const writeTool: ToolDefinition = {
   requiresApproval: true,
   isConcurrencySafe: false,
   async handler(input, ctx) {
-    const filePath = resolvePath(input.file_path as string);
+    const filePath = resolveToolPath(input.file_path as string, ctx.workingDir);
     const content = input.content as string;
 
     // ReadGuard check for existing files
@@ -60,8 +61,3 @@ export const writeTool: ToolDefinition = {
     }
   },
 };
-
-function resolvePath(filePath: string): string {
-  if (path.isAbsolute(filePath)) return path.normalize(filePath);
-  return path.resolve(process.cwd(), filePath);
-}

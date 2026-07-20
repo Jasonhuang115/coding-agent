@@ -1,7 +1,7 @@
 // MCP adapter — converts MCP tools into Rubato ToolDefinition format
 // Allows MCP servers to be used as regular tools in the agent loop
 
-import type { ToolDefinition, AgentContext } from "../../shared/core-types.js";
+import type { ToolDefinition } from "../../shared/core-types.js";
 import type { McpTool, CallToolResult } from "./types.js";
 import type { McpClient } from "./client.js";
 
@@ -18,29 +18,27 @@ const mcpServers = new Map<string, McpServerEntry>();
 export async function connectMcpServer(
   client: McpClient,
   serverName: string
-): Promise<string[]> {
+): Promise<ToolDefinition[]> {
   if (mcpServers.has(serverName)) {
     throw new Error(`MCP server "${serverName}" is already connected`);
   }
 
-  await client.start();
-
-  const { tools } = await client.listTools();
-  const registered: string[] = [];
-
-  for (const mcpTool of tools) {
-    const toolDef = adaptMcpTool(mcpTool, client);
-    // Tool registration is done by the caller (entry.ts) to avoid circular import issues.
-    // We just return the tool names so the caller knows what to register.
-    registered.push(mcpTool.name);
+  let adaptedTools: ToolDefinition[];
+  try {
+    await client.start();
+    const { tools } = await client.listTools();
+    adaptedTools = adaptMcpServerTools(serverName, tools, client);
+  } catch (error) {
+    client.stop();
+    throw error;
   }
 
   mcpServers.set(serverName, {
     client,
-    tools: registered.map((n) => `mcp:${serverName}:${n}`),
+    tools: adaptedTools.map((tool) => tool.name),
   });
 
-  return registered;
+  return adaptedTools;
 }
 
 /** Disconnect an MCP server and unregister all its tools. */
@@ -52,17 +50,6 @@ export function disconnectMcpServer(serverName: string): string[] {
   const toolNames = [...entry.tools];
   mcpServers.delete(serverName);
   return toolNames;
-}
-
-/** Get a connected MCP client by server name. */
-export function getMcpClient(serverName: string): McpClient | undefined {
-  const entry = mcpServers.get(serverName);
-  return entry?.client;
-}
-
-/** List all connected MCP server names. */
-export function listMcpServers(): string[] {
-  return Array.from(mcpServers.keys());
 }
 
 // ---- Tool adaptation ----

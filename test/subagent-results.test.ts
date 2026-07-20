@@ -43,7 +43,7 @@ const config: AgentConfig = {
     edit: "auto",
     web: "auto",
   },
-  embedding: { source: "local_onnx" },
+  embedding: { source: "local_hash" },
   mnemosyne: { bootstrap_on_first_open: false, bootstrap_max_files: 100 },
   session: { cleanupPeriodDays: 30 },
 };

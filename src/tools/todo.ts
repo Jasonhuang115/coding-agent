@@ -1,6 +1,6 @@
 // Todo tool — manages the agent's task list
 
-import type { ToolDefinition, AgentContext } from "../shared/core-types.js";
+import type { ToolDefinition } from "../shared/core-types.js";
 
 // In-memory todo store (per session)
 const todos = new Map<string, TodoItem[]>();
